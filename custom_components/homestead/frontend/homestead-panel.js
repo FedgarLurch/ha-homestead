@@ -324,6 +324,7 @@ const STYLE = `
   .work-day.warn { border-color: #c77700; }
   .work-day.chosen { box-shadow: 0 0 0 2px var(--primary-text-color) inset; }
   .tl-row.faded { opacity: .35; }
+  .soil-now { margin: 4px 0 8px; font-size: 14px; color: var(--secondary-text-color); }
   .shot-thumb { width: 56px; height: 42px; flex: none; border-radius: 6px; overflow: hidden; background: var(--secondary-background-color, #eee);
     display: flex; align-items: center; justify-content: center; }
   .shot-thumb img { width: 100%; height: 100%; object-fit: cover; }
@@ -699,6 +700,13 @@ class HomesteadPanel extends HTMLElement {
         },
         { type: "homestead/outlook/subscribe" },
       )
+      .catch(() => {});
+    this._hass
+      .callWS({ type: "homestead/soil" })
+      .then((sensors) => {
+        this._soilSensors = sensors;
+        if (this._tab === "diary" && !this._eventForm && !this._taskForm && !this._shot) this._render();
+      })
       .catch(() => {});
     this._hass
       .callWS({ type: "homestead/crops/defaults" })
@@ -2853,6 +2861,7 @@ class HomesteadPanel extends HTMLElement {
     const later = this._data.tasks.filter((t) => !t.done_on && t.due_on > week).length;
     return [
       this._weatherStrip(),
+      this._soilLine(),
       this._alertsBox(),
       this._todoBox(soon, null, h("button", { type: "button", onclick: () => this._openTask({ kind: "note", due_on: today() }) }, this.t("addTask"))),
       later ? h("button", { type: "button", className: "link todo-later", onclick: () => this._setTab("calendar") }, this.t("todoLater", { count: later })) : null,
@@ -3234,8 +3243,15 @@ class HomesteadPanel extends HTMLElement {
     const species = h("input", { name: "species", value: f.species || "", placeholder: "Solanum lycopersicum" });
     const speciesLabel = h("label", {}, this.t("species"), species);
     const expect = h("div", { className: "expect" });
+    const zones = [...this._data.zones].sort((a, b) => (b.kind === "nursery") - (a.kind === "nursery") || a.name.localeCompare(b.name));
+    const zoneSelect = h("select", { name: "zone_id" }, zones.map((z) => h("option", { value: z.id, selected: z.id === f.zone_id }, `${ZONE_ICONS[z.kind] || "📍"} ${this._zonePath(z.id)}`)));
+    const soil = h("div", { className: "alert-line" });
     const update = () => {
       const lot = lots.find((x) => x.id === lotSelect.value);
+      // Outdoors only: in a nursery or indoors the seed sits on a heated mat, not in this ground.
+      const outdoors = !["nursery", "indoor"].includes(this._zoneFamily({ zone_id: zoneSelect.value }) || this._zone(zoneSelect.value)?.kind);
+      soil.textContent = outdoors ? this._soilCheck(lot ? lot.species : species.value) : "";
+      soil.hidden = !soil.textContent;
       speciesLabel.hidden = !!lot;
       const name = lot ? lot.species : species.value;
       const lines = [];
@@ -3251,8 +3267,8 @@ class HomesteadPanel extends HTMLElement {
     };
     lotSelect.addEventListener("change", update);
     species.addEventListener("change", update);
+    zoneSelect.addEventListener("change", update);
     update();
-    const zones = [...this._data.zones].sort((a, b) => (b.kind === "nursery") - (a.kind === "nursery") || a.name.localeCompare(b.name));
     return [
       h(
         "form",
@@ -3261,13 +3277,9 @@ class HomesteadPanel extends HTMLElement {
         h("label", {}, this.t("sowLot"), lotSelect),
         speciesLabel,
         h("label", {}, this.t("sowCount"), this._stepper("count", f.count, 1, 999)),
-        h(
-          "label",
-          {},
-          this.t("sowWhere"),
-          h("select", { name: "zone_id" }, zones.map((z) => h("option", { value: z.id, selected: z.id === f.zone_id }, `${ZONE_ICONS[z.kind] || "📍"} ${this._zonePath(z.id)}`))),
-        ),
+        h("label", {}, this.t("sowWhere"), zoneSelect),
         this._field(f, "sown_on", { type: "date", required: true }),
+        soil,
         expect,
         this._formButtons(null, null),
       ),
@@ -3445,6 +3457,48 @@ class HomesteadPanel extends HTMLElement {
   }
 
   /** A cold night soon after planting out tender seedlings. */
+  // ----- soil sensors (options): moisture, temperature, EC, read live from their states -----
+
+  _soilNow() {
+    const read = (id) => {
+      const state = id && this._hass.states[id];
+      const value = state ? Number(state.state) : NaN;
+      return Number.isFinite(value) ? { value, unit: state.attributes?.unit_of_measurement || "" } : null;
+    };
+    const sensors = this._soilSensors || {};
+    return { temperature: read(sensors.temperature), moisture: read(sensors.moisture), ec: read(sensors.ec) };
+  }
+
+  _number(value, digits = 1) {
+    return value.toLocaleString(this._lang(), { maximumFractionDigits: digits });
+  }
+
+  /** "🌱 Soil now: 11.2 °C · 34 % · EC 420 µS/cm" under the weather of the Diary. */
+  _soilLine() {
+    const soil = this._soilNow();
+    const parts = [
+      soil.temperature ? `${this._number(soil.temperature.value)} ${soil.temperature.unit || "°C"}` : null,
+      soil.moisture ? `${this._number(soil.moisture.value, 0)} ${soil.moisture.unit || "%"}` : null,
+      soil.ec ? `EC ${this._number(soil.ec.value, 0)} ${soil.ec.unit}`.trim() : null,
+    ].filter(Boolean);
+    return parts.length ? h("p", { className: "soil-now" }, `🌱 ${this.t("soilNow")}: ${parts.join(" · ")}`) : null;
+  }
+
+  /** Soil temperature now against the minimum of the crop (sowing outdoors, planting out). */
+  _soilCheck(species) {
+    const now = this._soilNow().temperature;
+    const min = species ? this._crop(species)?.min_soil_c : null;
+    if (!now || min == null) return "";
+    const vars = { now: this._number(now.value), min: this._number(min) };
+    return now.value < min ? `⚠️ ${this.t("soilCold", vars)}` : `✅ ${this.t("soilOk", vars)}`;
+  }
+
+  _soilColdShort(species) {
+    const now = this._soilNow().temperature;
+    const min = this._crop(species)?.min_soil_c;
+    return now && min != null && now.value < min ? `⚠️ ${this.t("soilColdShort", { now: this._number(now.value), min: this._number(min) })}` : "";
+  }
+
   _coldWarning(planting, day) {
     const crop = this._crop(planting.species);
     const tender = crop?.warm || (crop?.hardiness_c ?? -5) > 0;
@@ -3458,6 +3512,8 @@ class HomesteadPanel extends HTMLElement {
     const p = f.planting;
     const note = h("div", { className: "expect" });
     const cold = h("div", { className: "alert-line" });
+    const soil = h("div", { className: "alert-line" }, this._soilCheck(p.species));
+    soil.hidden = !soil.textContent;
     let form = null;
     const update = () => {
       const moved = Math.min(p.quantity, Math.max(1, Number(form?.elements.quantity.value ?? f.quantity)));
@@ -3489,6 +3545,7 @@ class HomesteadPanel extends HTMLElement {
       this._field(f, "done_on", { type: "date", required: true, oninput: update }),
       note,
       cold,
+      soil,
       this._formButtons(null, null),
     );
     update();
@@ -4544,7 +4601,8 @@ class HomesteadPanel extends HTMLElement {
         .map((lot) => {
           const crop = this._crop(lot.species);
           const where = ["sow_indoor", "sow_outdoor"].find((key) => (crop?.[key] || []).some((m) => months.has(m)));
-          return where && { id: lot.id, name: `🌱 ${this._seedName(lot)}`, sub: this.t(`work_${where}`), planned: planned.get(lot.id) };
+          const cold = where === "sow_outdoor" ? this._soilColdShort(lot.species) : "";
+          return where && { id: lot.id, name: `🌱 ${this._seedName(lot)}`, sub: [this.t(`work_${where}`), cold].filter(Boolean).join(" · "), planned: planned.get(lot.id) };
         })
         .filter(Boolean);
     }
@@ -6611,6 +6669,54 @@ class HomesteadPanel extends HTMLElement {
     this._render();
   }
 
+  /** Purchase and every expense linked to the tool; per year counts from the purchase (at least one year). */
+  _toolCosts(tool) {
+    const expenses = this._data.expenses.filter((e) => e.tool_id === tool.id && !e.income).sort((a, b) => b.spent_on.localeCompare(a.spent_on));
+    const total = expenses.reduce((sum, e) => sum + e.amount, 0);
+    const since = tool.purchased_on || expenses.at(-1)?.spent_on;
+    const years = since ? Math.max(1, (Date.parse(today()) - Date.parse(since)) / (365.25 * 86400000)) : 1;
+    return { expenses, total, perYear: total / years };
+  }
+
+  _toolCostText(tool) {
+    const c = this._toolCosts(tool);
+    return c.total ? `💶 ${this._money(c.total)}` : null;
+  }
+
+  _toolExpensesBox(tool) {
+    const c = this._toolCosts(tool);
+    return h(
+      "div",
+      { className: "seasons" },
+      h("h3", {}, `💶 ${this.t("toolExpenses")}`),
+      c.total ? h("div", {}, h("strong", {}, this.t("toolCostTotal", { total: this._money(c.total), year: this._money(c.perYear) }))) : h("p", { className: "hint" }, this.t("noToolExpenses")),
+      c.expenses.length
+        ? h(
+            "ul",
+            {},
+            c.expenses.map((e) =>
+              h(
+                "li",
+                { onclick: () => this._openExpense(e) },
+                h(
+                  "div",
+                  { className: "main" },
+                  h("div", {}, `${this._date(e.spent_on)} · ${this.t(`cat_${e.category}`)}`),
+                  e.notes || e.supplier ? h("div", { className: "sub" }, [e.supplier, e.notes].filter(Boolean).join(" · ")) : null,
+                ),
+                h("span", {}, this._money(e.amount)),
+              ),
+            ),
+          )
+        : null,
+      h(
+        "button",
+        { type: "button", onclick: () => this._openExpense({ spent_on: today(), category: "tools", tool_id: tool.id }) },
+        `+ ${this.t("addToolExpense")}`,
+      ),
+    );
+  }
+
   _renderToolList() {
     const now = today();
     const tools = [...this._data.tools].sort((a, b) => a.name.localeCompare(b.name));
@@ -6648,6 +6754,7 @@ class HomesteadPanel extends HTMLElement {
                   ),
                   due ? h("div", { className: "sub warn" }, `🔧 ${this.t("serviceDue", { date: this._date(t.next_service_on) })}`) : null,
                   !due && t.next_service_on ? h("div", { className: "sub" }, `🔧 ${this._date(t.next_service_on)}${t.service_months ? ` · ${this.t("everyMonths", { count: t.service_months })}` : ""}`) : null,
+                  this._toolCostText(t) ? h("div", { className: "sub" }, this._toolCostText(t)) : null,
                 ),
                 due
                   ? h(
@@ -6692,12 +6799,24 @@ class HomesteadPanel extends HTMLElement {
           this._field(f, "next_service_on", { type: "date" }),
           this._field(f, "service_months", { type: "number", min: 1, max: 120, step: 1, inputMode: "numeric" }),
         ),
-        f.id && f.next_service_on ? h("button", { type: "button", onclick: () => this._toolServiced(f) }, `✔ ${this.t("toolServiceDone")}`) : null,
+        f.id && f.next_service_on ? this._serviceRow(f) : null,
         f.id ? null : this._field(f, "price", { type: "number", min: 0, step: "0.01", inputMode: "decimal" }),
         this._notes(f),
         this._formButtons(f.id, () => this._deleteTool()),
       ),
-    ];
+      f.id ? this._toolExpensesBox(f) : null,
+    ].filter(Boolean);
+  }
+
+  /** ✔ Serviced with an optional cost: the cost becomes an expense linked to the tool. */
+  _serviceRow(tool) {
+    const cost = h("input", { type: "number", min: 0, step: "0.01", inputMode: "decimal", placeholder: "0,00" });
+    return h(
+      "div",
+      { className: "row" },
+      h("label", {}, this.t("serviceCost"), cost),
+      h("button", { type: "button", onclick: () => this._toolServiced(tool, Number(cost.value) || 0) }, `✔ ${this.t("toolServiceDone")}`),
+    );
   }
 
   async _saveTool(ev) {
@@ -6721,8 +6840,9 @@ class HomesteadPanel extends HTMLElement {
   }
 
   /** Service done today: the next one after the tool's interval, or none. */
-  async _toolServiced(tool) {
+  async _toolServiced(tool, cost = 0) {
     const next = tool.service_months ? addMonths(today(), tool.service_months) : null;
+    if (cost > 0 && !(await this._call("add_expense", { amount: cost, category: "tools", spent_on: today(), tool_id: tool.id, notes: this.t("toolServiceDone") }))) return;
     if (await this._call("update_tool", { id: tool.id, next_service_on: next, status: "ok" })) {
       this._toolForm = null;
       this._render();
@@ -7477,7 +7597,12 @@ function weatherText(w) {
   if (w.t_mean != null) parts.push(`🌡️ ${Math.round(w.t_mean)}°${w.t_min != null ? ` (${Math.round(w.t_min)}–${Math.round(w.t_max)})` : ""}`);
   if (w.rh_mean != null) parts.push(`💧 ${Math.round(w.rh_mean)}%`);
   if (w.rain_mm != null) parts.push(`🌧️ ${w.rain_mm} mm`);
-  if (w.soil_mean != null) parts.push(`🌱 ${Math.round(w.soil_mean)}%`);
+  const soil = [
+    w.soil_mean != null ? `${Math.round(w.soil_mean)}%` : null,
+    w.soil_t_mean != null ? `${Math.round(w.soil_t_mean)}°` : null,
+    w.ec_mean != null ? `EC ${Math.round(w.ec_mean)}` : null,
+  ].filter(Boolean);
+  if (soil.length) parts.push(`🌱 ${soil.join(" ")}`);
   return parts.join(" · ");
 }
 
