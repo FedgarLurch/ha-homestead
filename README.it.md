@@ -69,7 +69,7 @@ Integrazione per Home Assistant per gestire orto, frutteto e giardino: piante, a
 | Lavori di zona | Lavorazione terreno, diserbo, pacciamatura, sfalcio: un evento sulla zona (es. tutto l'orto) |
 | Bilancio | Scheda *Spese*: anno a scelta (o tutti), spese, ricavi, saldo, mese per mese, per pianta |
 | Bosco e legna | Zona di tipo *Bosco* con le essenze principali; eventi pulizia, taglio legna (essenza, quantità in quintali, steri o m³ a scelta), raccolta rami, raccolta spontanea (funghi, castagne…); legna per anno nella scheda zona |
-| Semi | Scheda *Semi*: specie, varietà, anno, fornitore, quantità; avviso quando invecchiano (durata tipica per famiglia, modificabile); il lotto si sceglie nella pianta seminata. Servizi `add_seed_lot`, `update_seed_lot`, `delete_seed_lot` |
+| Semi | Scheda *Semi*: specie, varietà, anno, fornitore, quantità; avviso quando invecchiano (durata tipica per famiglia, modificabile); il lotto si sceglie nella pianta seminata. Filtri (cerca, anno, genere, fornitore, da usare/finiti) e *☑ Seleziona* per più lotti insieme: *🌱 Semina* (una semina per lotto, stessa zona e data), *📋 Programma* (un'attività di semina con la lista), *✔ Finiti*, *🗑️ Elimina*. Servizi `add_seed_lot`, `update_seed_lot`, `delete_seed_lot` |
 | Rotazione | Consiglio nel form pianta se nella stessa zona c'era la stessa famiglia negli ultimi 3 anni; colture per anno nella scheda zona |
 | Lista della spesa | 🛒 da semi e da prodotti di concimazione/trattamento → lista della spesa di HA (`todo.shopping_list`) |
 | Dati colturali | Scheda pianta *🌿 Scheda colturale*: esposizione, rusticità, distanza, mesi di semina, impianto, fioritura e raccolta (tabella di base di ~85 specie, valori indicativi per clima temperato; *✏️ Correggi* salva i tuoi valori). Nel Diario *📆 Questo mese*: semi da seminare, piantine da mettere a dimora, raccolte. Servizi `set_crop_profile`, `delete_crop_profile` |
@@ -85,11 +85,11 @@ Integrazione per Home Assistant per gestire orto, frutteto e giardino: piante, a
 | Stato | Verde = attiva, rosso = morta, grigio = rimossa |
 | Nuova zona | Scheda *Zone* → *+ Nuova zona* → clic sugli angoli → *Fine* → nome e tipo |
 | Zona di una pianta | Proposta in automatico se la pianta cade dentro un poligono (la zona più piccola) |
-| Backup | In fondo alla lista: *💾 Esporta* scarica un file JSON con tutto; *📂 Ripristina* (solo admin) sostituisce tutti i dati con quelli del file, dopo conferma |
+| Backup | In *Altro*: *💾 Esporta JSON* scarica tutti i dati e i collegamenti alle foto (non i file delle foto); *🗜️ Esporta con le foto (.zip)* aggiunge tutti i file delle foto, originali compresi (può essere grande); *📂 Ripristina* (solo admin) accetta i due file e sostituisce tutti i dati, dopo conferma. Da uno .zip tornano anche le foto, nella cartella media locale se quella d'origine (un NAS) non c'è |
 
 Specie: solo piante (regno Plantae); le specie già importate si trovano anche senza internet; le ricerche online restano in memoria 24 h. Home Assistant deve poter raggiungere `api.gbif.org` e `www.wikidata.org` (dati aperti, nessun account).
 
-I dati sono anche nei backup di Home Assistant (`.storage/homestead.data`); il backup del pannello serve per spostarli o ripristinarli a mano.
+I dati sono anche nei backup di Home Assistant (`.storage/homestead.data`), le foto anche se il backup include la cartella media (non un NAS). Rimuovere l'integrazione cancella i suoi dati da HA ma **lascia le foto** nella cartella media, con accanto un ultimo backup (`homestead/homestead-last-backup.json`): riaggiungendo l'integrazione il Diario mostra *♻️ Giardino ritrovato* per ripristinare tutto con un tocco. Per toglierle del tutto, cancella la cartella `homestead` da *Media*. HACS non fa backup.
 
 Mappe: satellite **Esri World Imagery** (gratuito, senza account né pubblicità) e **OpenStreetMap**. Leaflet è incluso nell'integrazione, nessuna libreria scaricata da CDN; solo le tessere della mappa arrivano da internet.
 
@@ -106,6 +106,7 @@ Mappe: satellite **Esri World Imagery** (gratuito, senza account né pubblicità
 | **Allerte gelo e caldo sui telefoni** | solo con un'attività prevista in quei giorni |
 | Ondata di calore: massima / minima notturna / giorni di fila | 35 °C / 22 °C / 3 |
 | Caldo estremo: massima (anche un giorno) | 40 °C |
+| **Unità**: come Home Assistant, metriche o imperiali (°F, pollici, piedi, acri, lb/oz, galloni; i dati restano salvati in metrico, le soglie di caldo qui sopra appaiono in °F) | come Home Assistant |
 
 Ogni giorno, all'ora scelta, arriva una notifica per ogni attività prevista oggi (più un riepilogo delle attività in ritardo). **Toccandola** si apre il pannello sul form del diario già compilato; il pulsante **✔ Fatto** la registra subito nel diario.
 

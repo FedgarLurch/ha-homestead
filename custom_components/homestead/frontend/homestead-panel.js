@@ -5,6 +5,8 @@ const BASE = new URL(".", import.meta.url).href;
 const ZONE_KINDS = ["vegetable_garden", "orchard", "flower_bed", "greenhouse", "pots", "lawn", "woodland", "compost", "coop", "nursery", "indoor", "other"];
 
 const TEXT = {};
+// Metric or imperial: set from the integration options (auto = as Home Assistant). Data stays metric.
+const UNITS = { imperial: false };
 // Panel texts, one file per language in i18n/ (English as fallback), loaded before the first render.
 const VERSION = new URL(import.meta.url).search;
 async function loadTexts(lang) {
@@ -96,6 +98,8 @@ const QUANTITY_UNITS = {
   flock_in: ["pieces"],
   flock_out: ["pieces"],
 };
+// The same in imperial units first; the metric ones stay for older entries.
+const IMPERIAL_UNITS = { harvest: ["lb", "oz", "pieces", "gal", "kg", "l"], foraging: ["lb", "oz", "pieces", "gal", "kg", "l"] };
 // Kinds with a "product" field, and its label.
 const PRODUCT_LABEL = { fertilizing: "product", treatment: "product", foraging: "what", wood_cutting: "essence", flock_in: "breed", animal_care: "feedOrCare" };
 const PLANT_ICONS = { tree: "🌳", fruit_tree: "🍎", shrub: "🍃", vine: "🍇", vegetable: "🥕", herb: "🌿", flower: "🌸", houseplant: "🪴", other: "🌱" };
@@ -217,6 +221,11 @@ const STYLE = `
   .care { border: 1px solid var(--divider-color); border-radius: 10px; padding: 6px 10px; display: grid; gap: 6px; }
   .care legend { font-weight: 700; padding: 0 4px; }
   .sow-button { flex: none; border-radius: 20px; font-weight: 700; align-self: center; }
+  .seed-filters input[type=search] { flex: 1 1 140px; min-width: 0; }
+  .bulk-bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px; margin: 6px 0; border-radius: 10px; background: var(--secondary-background-color, #eef0ec); }
+  .bulk-bar .check { margin-right: auto; }
+  .bulk-form { margin: 0 0 8px; padding: 8px; border: 1px solid var(--divider-color, #dfe3dc); border-radius: 10px; }
+  li input.pick { width: 22px; height: 22px; flex: none; align-self: center; }
   .nursery { display: grid; gap: 8px; margin: 12px 0; }
   .batch { border: 2px solid var(--divider-color); border-radius: 12px; padding: 8px 10px; display: grid; gap: 6px; }
   .batch.late { border-color: #e69100; background: rgba(230, 145, 0, .07); }
@@ -585,7 +594,8 @@ class HomesteadPanel extends HTMLElement {
   t(key, vars = {}) {
     const lang = this._lang();
     const text = (TEXT[lang] || TEXT.en)[key] ?? TEXT.en[key] ?? key;
-    return text.replace(/\{(\w+)\}/g, (_, name) => vars[name] ?? "");
+    const out = text.replace(/\{(\w+)\}/g, (_, name) => vars[name] ?? "");
+    return UNITS.imperial ? out.replace(/°C/g, "°F") : out;
   }
 
   // ---------- setup ----------
@@ -599,7 +609,7 @@ class HomesteadPanel extends HTMLElement {
     this._mapWrap = h("div", { className: "map" }, this._mapEl);
     this._fileInput = h("input", {
       type: "file",
-      accept: ".json,application/json",
+      accept: ".json,.zip,application/json,application/zip",
       hidden: true,
       onchange: (ev) => this._restoreBackup(ev.target),
     });
@@ -705,6 +715,24 @@ class HomesteadPanel extends HTMLElement {
         },
         { type: "homestead/outlook/subscribe" },
       )
+      .catch(() => {});
+    this._hass
+      .callWS({ type: "homestead/backup/last" })
+      .then((last) => {
+        this._lastBackup = last;
+        if (last && this._isEmpty()) this._render();
+      })
+      .catch(() => {});
+    this._hass
+      .callWS({ type: "homestead/units" })
+      .then((units) => {
+        const imperial = units?.system === "imperial";
+        if (imperial !== UNITS.imperial) {
+          UNITS.imperial = imperial;
+          this._render();
+          this._renderCalendar?.();
+        }
+      })
       .catch(() => {});
     this._hass
       .callWS({ type: "homestead/soil" })
@@ -1177,10 +1205,76 @@ class HomesteadPanel extends HTMLElement {
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
+  /** Backup with the photo files: the server streams the zip, the browser downloads it from a signed path. */
+  async _exportZip() {
+    try {
+      const { path } = await this._hass.callWS({ type: "auth/sign_path", path: "/api/homestead/backup.zip", expires: 300 });
+      const link = h("a", { href: path, download: "" });
+      this.shadowRoot.append(link);
+      link.click();
+      link.remove();
+      this._showMessage(`🗜️ ${this.t("zipStarted")}`);
+    } catch (err) {
+      this._showMessage(err.message || String(err), true);
+    }
+  }
+
+  _isEmpty() {
+    const d = this._data;
+    return !!d && !d.zones.length && !d.plantings.length && !d.events.length && !d.seeds.length;
+  }
+
+  /** After the integration was removed and added again: its last backup is still next to the photos. */
+  _lastBackupBox() {
+    const last = this._lastBackup;
+    if (!last || !this._isEmpty()) return null;
+    const date = this._date((last.exported_at || "").slice(0, 10));
+    const restore = async () => {
+      if (!confirm(this.t("lastBackupConfirm", { date }))) return;
+      try {
+        const result = await this._hass.callWS({ type: "homestead/backup/restore_last" });
+        this._lastBackup = null;
+        this._showMessage(`✓ ${this.t("restored", { summary: this._summary(result) })} · 📸 ${result.photos ?? 0}`);
+        this._fitAll();
+      } catch (err) {
+        this._showMessage(err.message || String(err), true);
+      }
+    };
+    return h(
+      "div",
+      { className: "seasons" },
+      h("h3", {}, `♻️ ${this.t("lastBackupTitle")}`),
+      h("p", {}, `${this.t("lastBackupText", { date })} ${this._summary(last.counts)} · 📸 ${last.counts.photos ?? 0}`),
+      this._hass.user?.is_admin === false ? null : h("button", { type: "button", className: "primary", onclick: restore }, `♻️ ${this.t("lastBackupRestore")}`),
+    );
+  }
+
+  async _restoreZip(file) {
+    const size = this._number(file.size / 1024 / 1024, 0);
+    if (!confirm(this.t("confirmRestoreZip", { name: file.name, size }))) return;
+    this._showMessage(`⏳ ${this.t("zipRestoring", { size })}`);
+    try {
+      const form = new FormData();
+      form.append("file", file, file.name);
+      const response = await this._hass.fetchWithAuth("/api/homestead/backup/import", { method: "POST", body: form });
+      if (!response.ok) throw new Error(response.status === 400 ? this.t("notBackup") : `${response.status} ${await response.text()}`);
+      const result = await response.json();
+      this._close();
+      this._showMessage(`✓ ${this.t("restored", { summary: this._summary(result) })} · 📸 ${result.photos ?? 0}`);
+      this._fitAll();
+    } catch (err) {
+      this._showMessage(err.message || String(err), true);
+    }
+  }
+
   async _restoreBackup(input) {
     const file = input.files?.[0];
     input.value = "";
     if (!file) return;
+    if (/\.zip$/i.test(file.name) || file.type === "application/zip") {
+      await this._restoreZip(file);
+      return;
+    }
     let backup;
     try {
       backup = JSON.parse(await file.text());
@@ -1381,7 +1475,13 @@ class HomesteadPanel extends HTMLElement {
       h("h3", {}, `🗑️ ${this.t("resetTitle")}`),
       h("p", { className: "hint" }, this.t("resetHint")),
       h("label", {}, this.t("resetType"), input),
-      h("div", { className: "row" }, h("button", { type: "button", onclick: () => this._exportBackup() }, `💾 ${this.t("exportBackup")}`), button),
+      h(
+        "div",
+        { className: "row" },
+        h("button", { type: "button", onclick: () => this._exportBackup() }, `💾 ${this.t("exportBackup")}`),
+        h("button", { type: "button", onclick: () => this._exportZip() }, `🗜️ ${this.t("exportZip")}`),
+        button,
+      ),
     );
   }
 
@@ -1418,6 +1518,7 @@ class HomesteadPanel extends HTMLElement {
         "div",
         { className: "actions" },
         h("button", { onclick: () => this._exportBackup() }, `💾 ${this.t("exportBackup")}`),
+        h("button", { onclick: () => this._exportZip() }, `🗜️ ${this.t("exportZip")}`),
         this._hass.user?.is_admin === false
           ? null
           : h("button", { onclick: () => this._fileInput.click() }, `📂 ${this.t("importBackup")}`),
@@ -2784,7 +2885,7 @@ class HomesteadPanel extends HTMLElement {
         return h(
           "div",
           { className: "sub", style: "white-space:normal" },
-          `${this.t(`al_${a.kind}`, { when: when(a), value: a.value })}${names.length && !everyone ? ` — ${names.slice(0, 5).join(", ")}${names.length > 5 ? " …" : ""}` : ""}`,
+          `${this.t(`al_${a.kind}`, { when: when(a), value: deg(a.value) })}${names.length && !everyone ? ` — ${names.slice(0, 5).join(", ")}${names.length > 5 ? " …" : ""}` : ""}`,
         );
       }),
     );
@@ -2866,6 +2967,7 @@ class HomesteadPanel extends HTMLElement {
     const soon = this._data.tasks.filter((t) => !t.done_on && t.due_on <= week);
     const later = this._data.tasks.filter((t) => !t.done_on && t.due_on > week).length;
     return [
+      this._lastBackupBox(),
       this._weatherStrip(),
       ...this._soilLines(),
       this._alertsBox(),
@@ -3053,7 +3155,7 @@ class HomesteadPanel extends HTMLElement {
   }
 
   _quickStepper(row) {
-    const unit = row.coop ? "eggs" : row.harvest?.unit || "kg";
+    const unit = row.coop ? "eggs" : row.harvest?.unit || (UNITS.imperial ? "lb" : "kg");
     const counted = unit === "eggs" || unit === "pieces";
     const step = (value) => (counted ? 1 : value < 2 ? 0.1 : value < 20 ? 0.5 : 1);
     const label = h("strong", { className: "quick-value" });
@@ -3486,7 +3588,10 @@ class HomesteadPanel extends HTMLElement {
     const read = (id) => {
       const state = id && this._hass.states[id];
       const value = state ? Number(state.state) : NaN;
-      return Number.isFinite(value) ? { value, unit: state.attributes?.unit_of_measurement || "" } : null;
+      if (!Number.isFinite(value)) return null;
+      const unit = state.attributes?.unit_of_measurement || "";
+      // Temperatures in °C inside the panel, whatever the sensor reports.
+      return unit === "°F" ? { value: ((value - 32) * 5) / 9, unit: "°C" } : { value, unit };
     };
     const sensors = this._soilSensorsFor(zoneId, ownOnly);
     return { temperature: read(sensors.temperature), moisture: read(sensors.moisture), ec: read(sensors.ec) };
@@ -3506,7 +3611,7 @@ class HomesteadPanel extends HTMLElement {
   _soilLine(zoneId = null, label = null, ownOnly = false) {
     const soil = this._soilNow(zoneId, ownOnly);
     const parts = [
-      soil.temperature ? `${this._number(soil.temperature.value)} ${soil.temperature.unit || "°C"}` : null,
+      soil.temperature ? `${this._number(this._degValue(soil.temperature.value))} ${UNITS.imperial ? "°F" : "°C"}` : null,
       soil.moisture ? `${this._number(soil.moisture.value, 0)} ${soil.moisture.unit || "%"}` : null,
       soil.ec ? `EC ${this._number(soil.ec.value, 0)} ${soil.ec.unit}`.trim() : null,
     ].filter(Boolean);
@@ -3514,18 +3619,23 @@ class HomesteadPanel extends HTMLElement {
   }
 
   /** Soil temperature now against the minimum of the crop (sowing outdoors, planting out). */
+  /** °C → the user's units, unrounded (for one decimal). */
+  _degValue(celsius) {
+    return UNITS.imperial ? (celsius * 9) / 5 + 32 : celsius;
+  }
+
   _soilCheck(species, zoneId = null) {
     const now = this._soilNow(zoneId).temperature;
     const min = species ? this._crop(species)?.min_soil_c : null;
     if (!now || min == null) return "";
-    const vars = { now: this._number(now.value), min: this._number(min) };
+    const vars = { now: this._number(this._degValue(now.value)), min: this._number(this._degValue(min)) };
     return now.value < min ? `⚠️ ${this.t("soilCold", vars)}` : `✅ ${this.t("soilOk", vars)}`;
   }
 
   _soilColdShort(species) {
     const now = this._soilNow().temperature;
     const min = this._crop(species)?.min_soil_c;
-    return now && min != null && now.value < min ? `⚠️ ${this.t("soilColdShort", { now: this._number(now.value), min: this._number(min) })}` : "";
+    return now && min != null && now.value < min ? `⚠️ ${this.t("soilColdShort", { now: this._number(this._degValue(now.value)), min: this._number(this._degValue(min)) })}` : "";
   }
 
   _coldWarning(planting, day) {
@@ -3533,7 +3643,7 @@ class HomesteadPanel extends HTMLElement {
     const tender = crop?.warm || (crop?.hardiness_c ?? -5) > 0;
     const limit = tender ? 10 : 2;
     const cold = (this._outlook?.forecast || []).find((d) => d.date >= day && daysBetween(day, d.date) <= 3 && d.t_min != null && d.t_min < limit);
-    return cold ? this.t("tpCold", { temp: Math.round(cold.t_min), date: this._date(cold.date, false) }) : "";
+    return cold ? this.t("tpCold", { temp: deg(cold.t_min), date: this._date(cold.date, false) }) : "";
   }
 
   _renderTransplantForm() {
@@ -4124,7 +4234,7 @@ class HomesteadPanel extends HTMLElement {
       productInput.setAttribute("list", kind === "wood_cutting" ? "homestead-essences" : "");
       extras.harvest.hidden = !QUANTITY_UNITS[kind];
       if (QUANTITY_UNITS[kind]) {
-        const units = QUANTITY_UNITS[kind];
+        const units = UNITS.imperial && IMPERIAL_UNITS[kind] ? IMPERIAL_UNITS[kind] : QUANTITY_UNITS[kind];
         const previous = unitSelect.value || f.unit;
         const fallback = WOOD_KINDS.includes(kind) && kind !== "foraging" ? this._woodUnit() : units[0];
         const value = units.includes(previous) ? previous : units.includes(fallback) ? fallback : units[0];
@@ -4729,7 +4839,7 @@ class HomesteadPanel extends HTMLElement {
                 },
               },
               h("b", {}, `${weekdayName.format(new Date(`${day}T12:00:00`))} ${this._date(day, false)} ${this._weatherIcon(info.forecast)}`),
-              h("span", { className: "sub" }, `${Math.round(info.forecast.t_max)}° / ${Math.round(info.forecast.t_min)}° · ${Math.round(info.forecast.rain_mm ?? 0)} mm`),
+              h("span", { className: "sub" }, `${deg(info.forecast.t_max)}° / ${deg(info.forecast.t_min)}° · ${rainText(info.forecast.rain_mm ?? 0)}`),
               h("span", { className: `sub ${info.flags.length ? "warn" : "info"}` }, info.flags.length ? `⚠️ ${info.flags.map((x) => this.t(x)).join(", ")}` : this.t("goodDay")),
             ),
           ),
@@ -4986,7 +5096,7 @@ class HomesteadPanel extends HTMLElement {
     const review = of("review").at(-1);
     const day = (e) => {
       const w = e.weather;
-      const extra = w ? ` ${w.t_mean != null ? `${Math.round(w.t_mean)}°` : ""}${w.rain_mm != null ? ` ${Math.round(w.rain_mm)}mm` : ""}` : "";
+      const extra = w ? ` ${w.t_mean != null ? `${deg(w.t_mean)}°` : ""}${w.rain_mm != null ? ` ${rainText(w.rain_mm)}` : ""}` : "";
       return `${this._date(e.done_on, false)} ${MOON_ICONS[e.moon_phase] || ""}${extra}`;
     };
     const sown = of("sowing")[0] || (planting.sown_on?.startsWith(year) ? { done_on: planting.sown_on, moon_phase: planting.sown_moon_phase } : null);
@@ -5034,7 +5144,7 @@ class HomesteadPanel extends HTMLElement {
           type: "button",
           onclick: () =>
             this._newEvent(
-              { kind: "harvest", planting_id: f.id, quantity: last?.quantity, unit: last?.unit || "kg" },
+              { kind: "harvest", planting_id: f.id, quantity: last?.quantity, unit: last?.unit || (UNITS.imperial ? "lb" : "kg") },
               { planting_id: f.id },
             ),
         },
@@ -5091,16 +5201,192 @@ class HomesteadPanel extends HTMLElement {
     this._render();
   }
 
+  _seedGenus(lot) {
+    return capitalize((lot.species || "").trim().split(/\s+/)[0].toLowerCase());
+  }
+
+  /** Filters of the seed list: text, year, genus, supplier, state (kept while the panel is open). */
+  _seedFilters(all) {
+    const f = (this._seedFilter ??= { text: "", year: "", genus: "", supplier: "", state: "active" });
+    const redraw = () => this._render();
+    const select = (key, label, values) =>
+      values.length > 1 || f[key]
+        ? h(
+            "select",
+            { onchange: (ev) => ((f[key] = ev.target.value), redraw()) },
+            h("option", { value: "" }, label),
+            values.map((v) => h("option", { value: v, selected: String(v) === f[key] }, v)),
+          )
+        : null;
+    const uniq = (list) => [...new Set(list.filter(Boolean).map(String))];
+    const text = h("input", { type: "search", value: f.text, placeholder: `🔍 ${this.t("seedSearch")}` });
+    text.addEventListener("input", () => {
+      f.text = text.value;
+      clearTimeout(this._seedSearchTimer);
+      this._seedSearchTimer = setTimeout(() => {
+        redraw();
+        const again = this.shadowRoot.querySelector(".seed-filters input[type=search]");
+        again?.focus();
+        again?.setSelectionRange(again.value.length, again.value.length);
+      }, 250);
+    });
+    return h(
+      "div",
+      { className: "row filters seed-filters" },
+      text,
+      select("year", this.t("allYears"), uniq(all.map((l) => l.year)).sort().reverse()),
+      select("genus", this.t("seedAllGenera"), uniq(all.map((l) => this._seedGenus(l))).sort()),
+      select("supplier", this.t("seedAllSuppliers"), uniq(all.map((l) => l.supplier?.trim())).sort((a, b) => a.localeCompare(b))),
+      h(
+        "select",
+        { onchange: (ev) => ((f.state = ev.target.value), redraw()) },
+        [["active", this.t("seedActive")], ["finished", this.t("finished")], ["", this.t("seedAll")]].map(([v, label]) => h("option", { value: v, selected: v === f.state }, label)),
+      ),
+    );
+  }
+
+  _filteredSeeds(all) {
+    const f = (this._seedFilter ??= { text: "", year: "", genus: "", supplier: "", state: "active" });
+    const text = (f.text || "").trim().toLowerCase();
+    return all.filter(
+      (l) =>
+        (!f.year || String(l.year) === f.year) &&
+        (!f.genus || this._seedGenus(l) === f.genus) &&
+        (!f.supplier || (l.supplier || "").trim() === f.supplier) &&
+        (!f.state || (f.state === "finished") === !!l.finished) &&
+        (!text || [l.species, l.variety, l.supplier, l.notes].some((v) => (v || "").toLowerCase().includes(text))),
+    );
+  }
+
+  /** The bar of the selected lots: sow them all now, plan the sowing, mark them finished, delete them. */
+  _seedBulkBar(visible) {
+    const picked = this._seedPicked;
+    const lots = this._data.seeds.filter((l) => picked.has(l.id));
+    const allShown = visible.length && visible.every((l) => picked.has(l.id));
+    const toggleAll = () => {
+      visible.forEach((l) => (allShown ? picked.delete(l.id) : picked.add(l.id)));
+      this._render();
+    };
+    const bar = h(
+      "div",
+      { className: "bulk-bar" },
+      h("label", { className: "check" }, h("input", { type: "checkbox", checked: !!allShown, onchange: toggleAll }), this.t("seedPickedCount", { count: lots.length })),
+      lots.length
+        ? [
+            h("button", { type: "button", className: "primary", onclick: () => ((this._seedBulk = "sow"), this._render()) }, `🌱 ${this.t("sow")}`),
+            h("button", { type: "button", onclick: () => ((this._seedBulk = "plan"), this._render()) }, `📋 ${this.t("seedPlan")}`),
+            h("button", { type: "button", onclick: () => this._seedBulkFinished(lots) }, `✔ ${this.t("seedMarkFinished")}`),
+            h("button", { type: "button", className: "danger", onclick: () => this._seedBulkDelete(lots) }, `🗑️ ${this.t("delete")}`),
+          ]
+        : null,
+      h("button", { type: "button", className: "link", onclick: () => ((this._seedPicked = null), (this._seedBulk = null), this._render()) }, "✕"),
+    );
+    return [bar, lots.length && this._seedBulk ? this._seedBulkForm(lots) : null];
+  }
+
+  _seedBulkForm(lots) {
+    const sow = this._seedBulk === "sow";
+    const zones = [...this._data.zones].sort((a, b) => (b.kind === "nursery") - (a.kind === "nursery") || a.name.localeCompare(b.name));
+    const date = h("input", { type: "date", name: "date", value: sow ? today() : addDays(today(), 1), required: true });
+    const zone = h("select", { name: "zone_id" }, h("option", { value: "" }, "—"), zones.map((z, i) => h("option", { value: z.id, selected: i === 0 && z.kind === "nursery" }, `${ZONE_ICONS[z.kind] || "📍"} ${this._zonePath(z.id)}`)));
+    const count = h("input", { type: "number", name: "count", min: 1, step: 1, value: 1, inputMode: "numeric" });
+    const submit = async (ev) => {
+      ev.preventDefault();
+      if (sow) await this._seedBulkSow(lots, zone.value || null, date.value, Math.max(1, Number(count.value) || 1));
+      else if (await this._call("add_task", { kind: "sowing", due_on: date.value, seed_ids: lots.map((l) => l.id) })) {
+        this._seedPicked = null;
+        this._seedBulk = null;
+        this._showMessage(`✓ ${this.t("seedPlanned", { count: lots.length, date: this._date(date.value) })}`);
+        this._render();
+      }
+    };
+    return h(
+      "form",
+      { className: "bulk-form", onsubmit: submit },
+      h("strong", {}, sow ? this.t("seedSowAll", { count: lots.length }) : this.t("seedPlanAll", { count: lots.length })),
+      h(
+        "div",
+        { className: "row" },
+        h("label", {}, this.t(sow ? "sown_on" : "due_on"), date),
+        sow ? h("label", {}, this.t("zone_id"), zone) : null,
+        sow ? h("label", {}, this.t("seedPerLot"), count) : null,
+      ),
+      h(
+        "div",
+        { className: "row" },
+        h("button", { type: "submit", className: "primary" }, sow ? `🌱 ${this.t("sow")}` : `📋 ${this.t("seedPlan")}`),
+        h("button", { type: "button", onclick: () => ((this._seedBulk = null), this._render()) }, this.t("cancel")),
+      ),
+    );
+  }
+
+  /** One sown planting per lot, like 🌱 Sow from a single lot. */
+  async _seedBulkSow(lots, zoneId, day, count) {
+    let done = 0;
+    for (const lot of lots) {
+      const name = this._seedName(lot).replace(" · ", " ");
+      const ok = await this._call("add_planting", {
+        name,
+        species: lot.species,
+        taxon_id: lot.taxon_id || null,
+        variety: lot.variety || null,
+        seed_lot_id: lot.id,
+        plant_type: this._plantTypeFor(lot.species),
+        origin: "sown",
+        sown_on: day,
+        kind: count > 1 ? "group" : "single",
+        quantity: count,
+        sown_count: count,
+        zone_id: zoneId,
+      });
+      if (!ok) break;
+      done += 1;
+    }
+    this._seedPicked = null;
+    this._seedBulk = null;
+    this._showMessage(`✓ ${this.t("seedSown", { count: done })}`);
+    this._render();
+  }
+
+  async _seedBulkFinished(lots) {
+    for (const lot of lots) if (!(await this._call("update_seed_lot", { id: lot.id, finished: !lots.every((l) => l.finished) }))) break;
+    this._seedPicked = null;
+    this._render();
+  }
+
+  async _seedBulkDelete(lots) {
+    if (!confirm(this.t("seedDeleteMany", { count: lots.length }))) return;
+    let done = 0;
+    for (const lot of lots) {
+      if (!(await this._call("delete_seed_lot", { id: lot.id }))) break;
+      done += 1;
+    }
+    this._seedPicked = null;
+    this._showMessage(`✓ ${this.t("seedDeleted", { count: done })}`);
+    this._render();
+  }
+
   _renderSeedList() {
-    const lots = [...this._data.seeds].sort((a, b) => a.finished - b.finished || this._seedName(a).localeCompare(this._seedName(b)));
+    const all = this._data.seeds;
+    const lots = this._filteredSeeds(all).sort((a, b) => a.finished - b.finished || this._seedName(a).localeCompare(this._seedName(b)));
+    const picking = !!this._seedPicked;
+    const pick = (lot) => (ev) => {
+      ev.stopPropagation();
+      if (ev.target.checked) this._seedPicked.add(lot.id);
+      else this._seedPicked.delete(lot.id);
+      this._render();
+    };
     return [
       h(
         "div",
         { className: "actions" },
         h("button", { className: "primary", onclick: () => this._openSeed({ year: new Date().getFullYear() }) }, `+ ${this.t("addSeed")}`),
+        all.length && !picking ? h("button", { onclick: () => ((this._seedPicked = new Set()), this._render()) }, `☑ ${this.t("seedSelect")}`) : null,
         h("button", { onclick: () => this._csvPick("seeds") }, this.t("csvImport")),
         h("button", { onclick: () => this._csvTemplate("seeds") }, this.t("csvTemplate")),
       ),
+      all.length > 1 ? this._seedFilters(all) : null,
+      ...(picking ? this._seedBulkBar(lots) : []),
       lots.length
         ? h(
             "ul",
@@ -5109,7 +5395,11 @@ class HomesteadPanel extends HTMLElement {
               const warning = this._seedWarning(lot);
               return h(
                 "li",
-                { onclick: () => this._openSeed(lot), style: lot.finished ? "opacity:.55" : "" },
+                {
+                  onclick: () => (picking ? (this._seedPicked.has(lot.id) ? this._seedPicked.delete(lot.id) : this._seedPicked.add(lot.id), this._render()) : this._openSeed(lot)),
+                  style: lot.finished ? "opacity:.55" : "",
+                },
+                picking ? h("input", { type: "checkbox", className: "pick", checked: this._seedPicked.has(lot.id), onclick: (ev) => ev.stopPropagation(), onchange: pick(lot) }) : null,
                 h("span", { className: "dot", style: `background:${lot.finished ? STATUS_COLOR.removed : warning ? "#ffa600" : STATUS_COLOR.active}` }),
                 h(
                   "div",
@@ -5126,7 +5416,7 @@ class HomesteadPanel extends HTMLElement {
                     : null,
                   this._germHistoryText(lot.species) ? h("div", { className: "sub" }, this._germHistoryText(lot.species)) : null,
                 ),
-                lot.finished
+                lot.finished || picking
                   ? null
                   : h(
                       "button",
@@ -5143,7 +5433,7 @@ class HomesteadPanel extends HTMLElement {
               );
             }),
           )
-        : h("p", { className: "hint" }, this.t("emptySeeds")),
+        : h("p", { className: "hint" }, all.length ? this.t("seedNoMatch") : this.t("emptySeeds")),
     ];
   }
 
@@ -5295,8 +5585,8 @@ class HomesteadPanel extends HTMLElement {
     const facts = crop
       ? [
           (crop.exposure || []).map((e) => this.t(`ex_${e}`)).join(" / ") || null,
-          crop.hardiness_c != null ? this.t("hardiness", { value: crop.hardiness_c }) : null,
-          crop.spacing_cm ? this.t("spacing", { value: crop.spacing_cm }) : null,
+          crop.hardiness_c != null ? this.t("hardiness", { value: deg(crop.hardiness_c) }) : null,
+          crop.spacing_cm ? `↔️ ${lengthText(crop.spacing_cm)}` : null,
         ].filter(Boolean)
       : [];
     return h(
@@ -5422,9 +5712,14 @@ class HomesteadPanel extends HTMLElement {
         h(
           "div",
           { className: "row" },
-          this._field(f, "hardiness_c", { type: "number", min: -60, max: 30, step: 1 }),
-          this._field(f, "spacing_cm", { type: "number", min: 1, max: 5000, step: 1 }),
-          this._field(f, "heat_max_c", { type: "number", min: 10, max: 50, step: 1 }),
+          this._field({ hardiness_c: deg(f.hardiness_c) }, "hardiness_c", { type: "number", step: 1 }),
+          h(
+            "label",
+            {},
+            UNITS.imperial ? this.t("spacing_cm").replace("cm", "in") : this.t("spacing_cm"),
+            h("input", { name: "spacing_cm", type: "number", min: 1, step: 1, value: f.spacing_cm == null ? "" : UNITS.imperial ? Math.round(f.spacing_cm / 2.54) : f.spacing_cm }),
+          ),
+          this._field({ heat_max_c: deg(f.heat_max_c) }, "heat_max_c", { type: "number", step: 1 }),
         ),
         grid,
         this._notes(f),
@@ -5442,9 +5737,9 @@ class HomesteadPanel extends HTMLElement {
     const data = {
       species: this._cropForm.species,
       exposure: ["sun", "partial", "shade"].filter((e) => v[`ex_${e}`] === "on"),
-      hardiness_c: v.hardiness_c === "" ? null : Number(v.hardiness_c),
-      spacing_cm: v.spacing_cm ? Number(v.spacing_cm) : null,
-      heat_max_c: v.heat_max_c ? Number(v.heat_max_c) : null,
+      hardiness_c: v.hardiness_c === "" ? null : toCelsius(Number(v.hardiness_c)),
+      spacing_cm: v.spacing_cm ? (UNITS.imperial ? Math.round(Number(v.spacing_cm) * 2.54) : Number(v.spacing_cm)) : null,
+      heat_max_c: v.heat_max_c ? toCelsius(Number(v.heat_max_c)) : null,
       notes: v.notes?.trim() || null,
       ...Object.fromEntries(CROP_MONTHS.map((key) => [key, [...this._cropMonthsState[key]].sort((a, b) => a - b)])),
     };
@@ -5929,7 +6224,7 @@ class HomesteadPanel extends HTMLElement {
         return h(
           "div",
           { className: "alert-line" },
-          `${this.t(`al_${a.kind}`, { when: when(a), value: a.value })}${names.length && !everyone ? ` — ${names.slice(0, 5).join(", ")}` : ""}`,
+          `${this.t(`al_${a.kind}`, { when: when(a), value: deg(a.value) })}${names.length && !everyone ? ` — ${names.slice(0, 5).join(", ")}` : ""}`,
         );
       }),
     );
@@ -5983,14 +6278,14 @@ class HomesteadPanel extends HTMLElement {
         { className: `day-col${dayAlerts.length ? " alert" : ""}${day.date === now ? " today" : ""}` },
         h("div", { className: "day-name" }, `${weekday.format(new Date(`${day.date}T12:00:00`)).replace(".", "")} ${Number(day.date.slice(8))}`),
         h("div", { className: "wx" }, this._weatherIcon(day)),
-        h("div", { className: "t-max" }, `${day.t_max != null ? Math.round(day.t_max) : "–"}°`),
-        h("div", { className: "sub" }, `${day.t_min != null ? Math.round(day.t_min) : "–"}°`),
-        h("div", { className: "sub rain" }, day.rain_mm ? `${Math.round(day.rain_mm)} mm` : ""),
+        h("div", { className: "t-max" }, `${day.t_max != null ? deg(day.t_max) : "–"}°`),
+        h("div", { className: "sub" }, `${day.t_min != null ? deg(day.t_min) : "–"}°`),
+        h("div", { className: "sub rain" }, day.rain_mm ? rainText(day.rain_mm) : ""),
         h(
           "div",
           { className: "day-chips" },
           dayAlerts.map((a) =>
-            h("span", { className: `alert-chip ${a.kind}`, title: this.t(`al_${a.kind}`, { when: this._date(a.start, false), value: a.value }) }, alertIcon[a.kind]),
+            h("span", { className: `alert-chip ${a.kind}`, title: this.t(`al_${a.kind}`, { when: this._date(a.start, false), value: deg(a.value) }) }, alertIcon[a.kind]),
           ),
           due.map((t) => {
             const verdict = advice[t.id];
@@ -6268,7 +6563,7 @@ class HomesteadPanel extends HTMLElement {
           ofYear.map((x) => {
             const from = this._yearFraction(x.start);
             const to = this._yearFraction(x.end.startsWith(year) ? x.end : `${year}-12-31`);
-            const title = `${extremeIcon[x.kind]} ${this.t(`xt_${x.kind}`)} ${this._date(x.start, false)}${x.end !== x.start ? `–${this._date(x.end, false)}` : ""}${x.value != null ? ` (${x.value}${x.kind === "heavy_rain" ? " mm" : " °C"})` : ""}`;
+            const title = `${extremeIcon[x.kind]} ${this.t(`xt_${x.kind}`)} ${this._date(x.start, false)}${x.end !== x.start ? `–${this._date(x.end, false)}` : ""}${x.value != null ? ` (${x.kind === "heavy_rain" ? rainText(x.value) : `${deg(x.value)} ${UNITS.imperial ? "°F" : "°C"}`})` : ""}`;
             return h("span", { className: "tl-mark", title, style: `left:${from * 100}%;min-width:${Math.max((to - from) * 100, 0)}%;border-color:${extremeColor[x.kind]}` }, extremeIcon[x.kind]);
           }),
         ),
@@ -6419,7 +6714,10 @@ class HomesteadPanel extends HTMLElement {
     const tiles = years.map((year) => {
       const indices = rows.map((row) => row.years[year]?.index).filter((v) => v != null);
       const index = indices.length ? indices.reduce((a, b) => a + b, 0) / indices.length : null;
-      const kg = rows.filter((row) => row.unit === "kg").reduce((sum, row) => sum + (row.years[year]?.total || 0), 0);
+      // Weight of the year in the user's unit: kg and lb rows together.
+      const toKg = { kg: 1, lb: 0.4536, oz: 0.02835 };
+      const kgTotal = rows.filter((row) => toKg[row.unit]).reduce((sum, row) => sum + (row.years[year]?.total || 0) * toKg[row.unit], 0);
+      const kg = UNITS.imperial ? Math.round((kgTotal / 0.4536) * 10) / 10 : Math.round(kgTotal * 10) / 10;
       const money = this._data.expenses.filter((e) => e.spent_on.startsWith(year));
       const balance = money.reduce((sum, e) => sum + (e.income ? e.amount : -e.amount), 0);
       const tone = this._tone(index);
@@ -6427,7 +6725,7 @@ class HomesteadPanel extends HTMLElement {
         "div",
         { className: "an-tile" },
         h("div", { className: "an-tile-head" }, h("strong", {}, year), tone ? h("span", { className: `an-badge ${tone}` }, this.t(`an_${tone}`)) : null),
-        h("div", { className: "sub" }, `${index != null ? `${this.t("anIndex")} ${index.toFixed(2).replace(".", ",")}` : ""}${index != null && kg ? " · " : ""}${kg ? this._quantity(kg, "kg") : ""}`),
+        h("div", { className: "sub" }, `${index != null ? `${this.t("anIndex")} ${index.toFixed(2).replace(".", ",")}` : ""}${index != null && kg ? " · " : ""}${kg ? this._quantity(kg, UNITS.imperial ? "lb" : "kg") : ""}`),
         money.length ? h("div", { className: "sub" }, `${this.t("balance")} ${balance >= 0 ? "+" : ""}${this._money(balance)}`) : null,
         h("div", { className: "sub" }, weatherText(weatherOf(year))),
       );
@@ -7663,12 +7961,12 @@ function commonsThumb(file, width) {
 
 function weatherText(w) {
   const parts = [];
-  if (w.t_mean != null) parts.push(`🌡️ ${Math.round(w.t_mean)}°${w.t_min != null ? ` (${Math.round(w.t_min)}–${Math.round(w.t_max)})` : ""}`);
+  if (w.t_mean != null) parts.push(`🌡️ ${deg(w.t_mean)}°${w.t_min != null ? ` (${deg(w.t_min)}–${deg(w.t_max)})` : ""}`);
   if (w.rh_mean != null) parts.push(`💧 ${Math.round(w.rh_mean)}%`);
-  if (w.rain_mm != null) parts.push(`🌧️ ${w.rain_mm} mm`);
+  if (w.rain_mm != null) parts.push(`🌧️ ${rainText(w.rain_mm)}`);
   const soil = [
     w.soil_mean != null ? `${Math.round(w.soil_mean)}%` : null,
-    w.soil_t_mean != null ? `${Math.round(w.soil_t_mean)}°` : null,
+    w.soil_t_mean != null ? `${deg(w.soil_t_mean)}°` : null,
     w.ec_mean != null ? `EC ${Math.round(w.ec_mean)}` : null,
   ].filter(Boolean);
   if (soil.length) parts.push(`🌱 ${soil.join(" ")}`);
@@ -7787,7 +8085,32 @@ function rad(deg) {
 
 function formatArea(m2) {
   if (m2 == null) return "";
+  if (UNITS.imperial) {
+    const acres = m2 / 4046.856;
+    return acres >= 0.25 ? `${acres.toFixed(2)} ac` : `${Math.round(m2 * 10.7639)} ft²`;
+  }
   return m2 >= 10000 ? `${(m2 / 10000).toFixed(2)} ha` : `${Math.round(m2)} m²`;
+}
+
+/** Temperature in the user's units (data is in °C): a rounded number, the text says °C or °F. */
+function deg(celsius) {
+  return celsius == null ? null : Math.round(UNITS.imperial ? (celsius * 9) / 5 + 32 : celsius);
+}
+
+/** A temperature typed by the user, back to °C (to the half degree). */
+function toCelsius(value) {
+  return UNITS.imperial ? Math.round(((value - 32) * 5) / 9 * 2) / 2 : value;
+}
+
+function rainText(mm) {
+  if (mm == null) return "";
+  if (!UNITS.imperial) return `${Math.round(mm * 10) / 10} mm`;
+  const inches = mm / 25.4;
+  return `${inches < 1 ? inches.toFixed(2) : inches.toFixed(1)} in`;
+}
+
+function lengthText(cm) {
+  return UNITS.imperial ? `${Math.round(cm / 2.54)} in` : `${cm} cm`;
 }
 
 customElements.define("homestead-panel", HomesteadPanel);

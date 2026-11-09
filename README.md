@@ -69,7 +69,7 @@ A Home Assistant integration to manage your vegetable garden, orchard and garden
 | Zone work | Tillage, weeding, mulching, mowing: one event on the zone (e.g. the whole vegetable garden) |
 | Balance | *Expenses* tab: chosen year (or all), expenses, revenue, balance, month by month, per plant |
 | Woodland and firewood | Zone of type *Woodland* with its main tree species; events clearing, wood cutting (species, quantity in quintals, steres or m³), brushwood, foraging (mushrooms, chestnuts…); firewood per year in the zone card |
-| Seeds | *Seeds* tab: species, variety, year, supplier, quantity; warning when they age (typical life per family, editable); the lot is chosen in the sown plant. Services `add_seed_lot`, `update_seed_lot`, `delete_seed_lot` |
+| Seeds | *Seeds* tab: species, variety, year, supplier, quantity; warning when they age (typical life per family, editable); the lot is chosen in the sown plant. Filters (search, year, genus, supplier, to use/finished) and *☑ Select* for several lots at once: *🌱 Sow* (one sowing per lot, same zone and date), *📋 Plan* (one sowing task with the list), *✔ Finished*, *🗑️ Delete*. Services `add_seed_lot`, `update_seed_lot`, `delete_seed_lot` |
 | Rotation | Advice in the plant form if the same family was in the same zone in the last 3 years; crops per year in the zone card |
 | Shopping list | 🛒 from seeds and fertiliser/treatment products → the HA shopping list (`todo.shopping_list`) |
 | Crop data | Plant card *🌿 Crop sheet*: exposure, hardiness, spacing, months for sowing, planting, flowering and harvest (base table of ~85 species, indicative values for a temperate climate; *✏️ Correct* saves your values). In the Diary *📆 This month*: seeds to sow, seedlings to plant out, harvests. Services `set_crop_profile`, `delete_crop_profile` |
@@ -85,11 +85,11 @@ A Home Assistant integration to manage your vegetable garden, orchard and garden
 | Status | Green = active, red = dead, grey = removed |
 | New zone | *Zones* tab → *+ New zone* → click the corners → *Done* → name and type |
 | Zone of a plant | Proposed automatically when the plant falls inside a polygon (the smallest zone) |
-| Backup | At the bottom of the list: *💾 Export* downloads a JSON file with everything; *📂 Restore* (admins only) replaces all data with the file's, after confirmation |
+| Backup | In *More*: *💾 Export JSON* downloads all the data and the links to the photos (not the photo files); *🗜️ Export with photos (.zip)* adds every photo file, originals included (it can be large); *📂 Restore* (admins only) takes either file and replaces all data, after confirmation. From a .zip the photos come back too, into the local media folder if the original one (a NAS) is not there |
 
 Species: plants only (kingdom Plantae); species already imported are found without internet too; online searches are kept in memory for 24 h. Home Assistant must be able to reach `api.gbif.org` and `www.wikidata.org` (open data, no account).
 
-The data is also in the Home Assistant backups (`.storage/homestead.data`); the panel backup is for moving or restoring it by hand.
+The data is also in the Home Assistant backups (`.storage/homestead.data`), the photos too if the backup includes the media folder (not a NAS). Removing the integration deletes its data from HA but **keeps the photos** in the media folder, with a last backup next to them (`homestead/homestead-last-backup.json`): adding the integration again shows *♻️ Garden found* in the Diary to restore everything in one tap. To remove them for good, delete the `homestead` folder from *Media*. HACS does not back anything up.
 
 Maps: **Esri World Imagery** satellite (free, no account or ads) and **OpenStreetMap**. Leaflet ships with the integration, no library is downloaded from a CDN; only the map tiles come from the internet.
 
@@ -106,6 +106,7 @@ Maps: **Esri World Imagery** satellite (free, no account or ads) and **OpenStree
 | **Frost and heat alerts on phones** | only with a task planned on those days |
 | Heat wave: maximum / night minimum / days in a row | 35 °C / 22 °C / 3 |
 | Extreme heat: maximum (even one day) | 40 °C |
+| **Units**: as Home Assistant, metric, or imperial (°F, inches, feet, acres, lb/oz, gallons; data is stored in metric, the heat limits above are shown in °F) | as Home Assistant |
 
 Every day at the chosen time a notification arrives for each task planned for today (plus a summary of overdue tasks). **Tapping** it opens the panel on the prefilled diary form; the **✔ Done** button records it in the diary right away.
 

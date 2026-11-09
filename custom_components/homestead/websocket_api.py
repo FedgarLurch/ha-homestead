@@ -17,6 +17,7 @@ from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
 
 from .backup import BackupError, make_backup, read_backup, summary
+from .backup_zip import keep_existing_photos, read_last_backup
 from .const import (
     CONF_PHOTO_MEDIA,
     CONF_SOIL,
@@ -32,6 +33,7 @@ from .models import HomesteadData, Photo
 from .photos import MAX_PHOTO_BYTES, delete_all, image_type, photo_dir, photo_roots, write_photo
 from .species import SourcesUnavailable, combine, search_local, search_remote
 from .store import get_store
+from .units import resolve_units
 
 SEARCH_CACHE = f"{DOMAIN}_species_cache"
 SEARCH_CACHE_TTL_S = 24 * 3600
@@ -43,10 +45,13 @@ def async_register_websocket(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_subscribe)
     websocket_api.async_register_command(hass, ws_backup_export)
     websocket_api.async_register_command(hass, ws_backup_import)
+    websocket_api.async_register_command(hass, ws_backup_last)
+    websocket_api.async_register_command(hass, ws_backup_restore_last)
     websocket_api.async_register_command(hass, ws_reset)
     websocket_api.async_register_command(hass, ws_photo_upload)
     websocket_api.async_register_command(hass, ws_photo_storage)
     websocket_api.async_register_command(hass, ws_soil_sensors)
+    websocket_api.async_register_command(hass, ws_units)
     websocket_api.async_register_command(hass, ws_search_species)
     websocket_api.async_register_command(hass, ws_crop_defaults)
     websocket_api.async_register_command(hass, ws_outlook_subscribe)
@@ -180,11 +185,44 @@ async def ws_backup_import(
     except BackupError as err:
         connection.send_error(msg["id"], "invalid_format", str(err))
         return
-    # The JSON has no image bytes: keep only photo records whose file is still on this instance.
-    exists = await hass.async_add_executor_job(
-        lambda: {i for i, p in data.photos.items() if (photo_dir(hass, p.root) / p.file).is_file()}
-    )
-    data.photos = {i: p for i, p in data.photos.items() if i in exists}
+    await hass.async_add_executor_job(keep_existing_photos, hass, data)
+    store.data = data
+    await store.async_save()
+    connection.send_result(msg["id"], summary(data))
+
+
+@websocket_api.websocket_command({vol.Required("type"): "homestead/backup/last"})
+@websocket_api.async_response
+async def ws_backup_last(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """The backup left next to the photos when the integration was removed: date and counts, or None."""
+    raw = await hass.async_add_executor_job(read_last_backup, hass)
+    try:
+        data = read_backup(raw)
+    except BackupError:
+        connection.send_result(msg["id"], None)
+        return
+    connection.send_result(msg["id"], {"exported_at": raw.get("exported_at"), "counts": summary(data)})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): "homestead/backup/restore_last"})
+@websocket_api.async_response
+async def ws_backup_restore_last(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Put back the data of that backup; its photos are still in the media folder (admin only)."""
+    if (store := get_store(hass)) is None:
+        connection.send_error(msg["id"], "not_loaded", "HA Homestead is not loaded")
+        return
+    raw = await hass.async_add_executor_job(read_last_backup, hass)
+    try:
+        data = read_backup(raw)
+    except BackupError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    await hass.async_add_executor_job(keep_existing_photos, hass, data)
     store.data = data
     await store.async_save()
     connection.send_result(msg["id"], summary(data))
@@ -264,6 +302,16 @@ def ws_photo_storage(
         media = "local"
     result = {"media": media, "path": str(photo_dir(hass, media)), "folders": list(hass.config.media_dirs)}
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({vol.Required("type"): "homestead/units"})
+@callback
+def ws_units(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """Metric or imperial, as chosen in the options (auto = as Home Assistant)."""
+    entries = hass.config_entries.async_entries(DOMAIN)
+    connection.send_result(
+        msg["id"], {"system": resolve_units(hass, dict(entries[0].options) if entries else {})}
+    )
 
 
 @websocket_api.websocket_command({vol.Required("type"): "homestead/soil"})
