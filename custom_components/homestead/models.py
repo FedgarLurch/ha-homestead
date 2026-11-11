@@ -116,6 +116,22 @@ class EventKind(StrEnum):
     PHOTO = "photo"  # a picture of a zone or a plant from the photo plan, to compare over the years
 
 
+class Severity(StrEnum):
+    """How bad a pest or a disease is (the "problem" event)."""
+
+    FEW = "few"
+    SPREAD = "spread"
+    HEAVY = "heavy"
+
+
+class Worked(StrEnum):
+    """Did a treatment work? Asked about ten days after it."""
+
+    YES = "yes"
+    PARTLY = "partly"
+    NO = "no"
+
+
 class EndReason(StrEnum):
     """Why a planting's life ended (the "removal" event)."""
 
@@ -189,6 +205,15 @@ class HarvestUnit(StrEnum):
     GALLON = "gal"
 
 
+class WateringMode(StrEnum):
+    NONE = "none"  # rain only: old trees, meadow
+    CAN = "can"
+    HOSE = "hose"
+    DRIP = "drip"
+    OVERHEAD = "overhead"  # sprinklers: wet leaves
+    VALVE = "valve"  # automatic valve
+
+
 class ToolStatus(StrEnum):
     OK = "ok"
     NEEDS_SERVICE = "needs_service"
@@ -233,6 +258,7 @@ class Zone(_Record):
     soil_moisture_entity: str | None = None
     soil_temperature_entity: str | None = None
     soil_ec_entity: str | None = None
+    watering: str | None = None  # WateringMode; None = as the parent zone
 
 
 def clean_species(value: Any) -> list[dict[str, Any]]:
@@ -285,6 +311,9 @@ class Planting(_Record):
     zone_id: str | None = None
     latitude: float | None = None
     longitude: float | None = None
+    # A row of plants (a group): the other end, [longitude, latitude]; the position is where it starts.
+    row_to: list[float] | None = None
+    watering: str | None = None  # WateringMode; None = as its zone
     status: str = PlantingStatus.ACTIVE
     moon_phase: str | None = None
     sown_moon_phase: str | None = None
@@ -348,6 +377,8 @@ class Event(_Record):
     avoid: str | None = None
     reason: str | None = None  # flock_out: why the hens left; removal: finished, died, removed
     cause: str | None = None  # removal of a dead planting: frost, drought…
+    severity: str | None = None  # problem: few, spread, heavy (the pest or disease is in product)
+    worked: str | None = None  # treatment: did it work (yes, partly, no)
     moon_phase: str | None = None
     weather: dict[str, Any] | None = None
     notes: str | None = None
@@ -380,6 +411,9 @@ class Task(_Record):
     due_until: str | None = None
     plan_id: str | None = None
     window_on: str | None = None  # first day of the plan period that made it (never moved)
+    # Succession sowing: done → the same task again N weeks later, until that day.
+    repeat_weeks: int | None = None
+    repeat_until: str | None = None
 
     @property
     def items(self) -> list[str]:
@@ -407,6 +441,29 @@ class Task(_Record):
             planting_ids=list(self.planting_ids),
             seed_ids=list(self.seed_ids),
             zone_ids=list(self.zone_ids),
+            repeat_weeks=self.repeat_weeks,
+            repeat_until=self.repeat_until,
+        )
+
+    def next_repeat(self, done_on: str) -> Task | None:
+        """Succession sowing: the next one N weeks after this one was done, if still before the end."""
+        if not self.repeat_weeks:
+            return None
+        due = date.fromisoformat(done_on) + timedelta(weeks=self.repeat_weeks)
+        if self.repeat_until and due.isoformat() > self.repeat_until:
+            return None
+        return Task(
+            kind=self.kind,
+            due_on=due.isoformat(),
+            title=self.title,
+            planting_id=self.planting_id,
+            zone_id=self.zone_id,
+            notes=self.notes,
+            planting_ids=list(self.planting_ids),
+            seed_ids=list(self.seed_ids),
+            zone_ids=list(self.zone_ids),
+            repeat_weeks=self.repeat_weeks,
+            repeat_until=self.repeat_until,
         )
 
 
@@ -438,6 +495,7 @@ class SeedLot(_Record):
     quantity: str | None = None  # free text: "1 packet", "20 g"
     viability_years: int | None = None  # overrides the family default
     finished: bool = False
+    from_planting_id: str | None = None  # own seeds: the mother plant
     notes: str | None = None
 
 

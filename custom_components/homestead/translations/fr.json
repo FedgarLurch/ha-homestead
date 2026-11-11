@@ -292,6 +292,30 @@
         "metric": "Métrique (°C, mm, m, kg, l)",
         "imperial": "Impérial (°F, in, ft, lb, gal)"
       }
+    },
+    "watering_mode": {
+      "options": {
+        "none": "Non arrosé (pluie seule)",
+        "can": "Arrosoir",
+        "hose": "Tuyau",
+        "drip": "Goutte-à-goutte",
+        "overhead": "Par aspersion",
+        "valve": "Vanne automatique"
+      }
+    },
+    "severity": {
+      "options": {
+        "few": "quelques-uns",
+        "spread": "répandu",
+        "heavy": "infestation"
+      }
+    },
+    "worked": {
+      "options": {
+        "yes": "oui",
+        "partly": "en partie",
+        "no": "non"
+      }
     }
   },
   "services": {
@@ -338,6 +362,10 @@
         "soil_ec_entity": {
           "name": "Capteur EC du sol",
           "description": "Capteur de conductivité électrique de cette zone (un Ecowitt WH52, par exemple)."
+        },
+        "watering": {
+          "name": "Comment c'est arrosé",
+          "description": "Pluie seule, arrosoir, tuyau, goutte-à-goutte, par aspersion ou vanne automatique ; vide = comme la zone au-dessus."
         }
       }
     },
@@ -388,6 +416,10 @@
         "soil_ec_entity": {
           "name": "Capteur EC du sol",
           "description": "Capteur de conductivité électrique de cette zone (un Ecowitt WH52, par exemple)."
+        },
+        "watering": {
+          "name": "Comment c'est arrosé",
+          "description": "Pluie seule, arrosoir, tuyau, goutte-à-goutte, par aspersion ou vanne automatique ; vide = comme la zone au-dessus."
         }
       }
     },
@@ -520,6 +552,14 @@
         "notes": {
           "name": "Notes",
           "description": "Notes libres."
+        },
+        "row_to": {
+          "name": "Fin du rang",
+          "description": "Un rang de plantes : l'autre extrémité en [longitude, latitude] ; la position est le début du rang."
+        },
+        "watering": {
+          "name": "Comment c'est arrosé",
+          "description": "Pluie seule, arrosoir, tuyau, goutte-à-goutte, par aspersion ou vanne automatique ; vide = comme la zone au-dessus."
         }
       }
     },
@@ -646,6 +686,14 @@
         "notes": {
           "name": "Notes",
           "description": "Notes libres."
+        },
+        "row_to": {
+          "name": "Fin du rang",
+          "description": "Un rang de plantes : l'autre extrémité en [longitude, latitude] ; la position est le début du rang."
+        },
+        "watering": {
+          "name": "Comment c'est arrosé",
+          "description": "Pluie seule, arrosoir, tuyau, goutte-à-goutte, par aspersion ou vanne automatique ; vide = comme la zone au-dessus."
         }
       }
     },
@@ -966,6 +1014,14 @@
         "revenue": {
           "name": "Recette",
           "description": "Enregistré comme recette liée à l'événement."
+        },
+        "severity": {
+          "name": "Gravité",
+          "description": "Ravageur ou maladie (événement problème) : quelques-uns, répandu, infestation."
+        },
+        "worked": {
+          "name": "Efficace",
+          "description": "Traitement : a-t-il marché."
         }
       }
     },
@@ -1036,6 +1092,14 @@
         "notes": {
           "name": "Notes",
           "description": "Notes libres."
+        },
+        "severity": {
+          "name": "Gravité",
+          "description": "Ravageur ou maladie (événement problème) : quelques-uns, répandu, infestation."
+        },
+        "worked": {
+          "name": "Efficace",
+          "description": "Traitement : a-t-il marché."
         }
       }
     },
@@ -1142,6 +1206,14 @@
         "notes": {
           "name": "Notes",
           "description": "Notes libres."
+        },
+        "repeat_weeks": {
+          "name": "Répéter toutes les (semaines)",
+          "description": "Semis échelonné : fait, la même tâche revient après ces semaines."
+        },
+        "repeat_until": {
+          "name": "Répéter jusqu'au",
+          "description": "Dernier jour du semis échelonné."
         }
       }
     },
@@ -1188,6 +1260,14 @@
         "notes": {
           "name": "Notes",
           "description": "Notes libres."
+        },
+        "repeat_weeks": {
+          "name": "Répéter toutes les (semaines)",
+          "description": "Semis échelonné : fait, la même tâche revient après ces semaines."
+        },
+        "repeat_until": {
+          "name": "Répéter jusqu'au",
+          "description": "Dernier jour du semis échelonné."
         }
       }
     },
@@ -1302,6 +1382,10 @@
         "notes": {
           "name": "Notes",
           "description": "Notes libres."
+        },
+        "from_planting_id": {
+          "name": "De la plante",
+          "description": "Vos graines : ID de la plante mère."
         }
       }
     },
@@ -1348,6 +1432,10 @@
         "notes": {
           "name": "Notes",
           "description": "Notes libres."
+        },
+        "from_planting_id": {
+          "name": "De la plante",
+          "description": "Vos graines : ID de la plante mère."
         }
       }
     },
@@ -1456,6 +1544,8 @@
     "better_on": "mieux le {date}",
     "notification_compost": "♻️ {zone} : retourner le compost ({days} jours depuis la dernière fois)",
     "notification_tool": "🔧 {tool} : entretien à faire",
-    "notification_water": "🪴 À arroser : {plants}"
+    "notification_water": "🪴 À arroser : {plants}",
+    "notification_dry_zones": "💧 À arroser aujourd'hui : {zones}",
+    "notification_young": "🌳 {plant} : pas d'eau depuis {days} jours"
   }
 }

@@ -39,10 +39,13 @@ from .models import (
     PlantingStatus,
     PlantType,
     SeedLot,
+    Severity,
     Task,
     Tool,
     ToolPower,
     ToolStatus,
+    WateringMode,
+    Worked,
     Zone,
     ZoneKind,
     new_id,
@@ -77,6 +80,7 @@ ADD_ZONE_SCHEMA = vol.Schema(
         ),
         vol.Optional("notes"): _opt_str,
         **{vol.Optional(attr): vol.Any(None, cv.entity_id) for attr in SOIL_SENSOR_FIELDS.values()},
+        vol.Optional("watering"): vol.Any(None, vol.In([m.value for m in WateringMode])),
     }
 )
 
@@ -109,6 +113,8 @@ ADD_PLANTING_SCHEMA = vol.Schema(
         vol.Optional("zone_id"): _opt_str,
         vol.Optional("latitude"): vol.Any(None, cv.latitude),
         vol.Optional("longitude"): vol.Any(None, cv.longitude),
+        vol.Optional("row_to"): vol.Any(None, vol.All([vol.Coerce(float)], vol.Length(min=2, max=2))),
+        vol.Optional("watering"): vol.Any(None, vol.In([m.value for m in WateringMode])),
         vol.Optional("seed_lot_id"): _opt_str,
         vol.Optional("sown_count"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1))),
         vol.Optional("germinated_on"): _opt_date,
@@ -220,6 +226,7 @@ ADD_SEED_LOT_SCHEMA = vol.Schema(
         vol.Optional("quantity"): _opt_str,
         vol.Optional("viability_years"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=50))),
         vol.Optional("finished"): cv.boolean,
+        vol.Optional("from_planting_id"): _opt_str,
         vol.Optional("price"): vol.Any(None, _positive),
         vol.Optional("notes"): _opt_str,
     }
@@ -268,6 +275,8 @@ _EVENT_FIELDS = {
     vol.Optional("avoid"): _opt_str,
     vol.Optional("reason"): vol.Any(None, vol.In([r.value for r in (*LeaveReason, *EndReason)])),
     vol.Optional("cause"): vol.Any(None, vol.In([c.value for c in DeathCause])),
+    vol.Optional("severity"): vol.Any(None, vol.In([s.value for s in Severity])),
+    vol.Optional("worked"): vol.Any(None, vol.In([w.value for w in Worked])),
     vol.Optional("notes"): _opt_str,
 }
 
@@ -298,6 +307,8 @@ _TASK_FIELDS = {
     vol.Exclusive("planting_ids", "target"): vol.All(cv.ensure_list, [cv.string]),
     vol.Optional("seed_ids"): vol.All(cv.ensure_list, [cv.string]),
     vol.Optional("yearly"): cv.boolean,
+    vol.Optional("repeat_weeks"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=26))),
+    vol.Optional("repeat_until"): _opt_date,
     vol.Optional("notes"): _opt_str,
 }
 
@@ -627,6 +638,7 @@ def async_register_services(hass: HomeAssistant) -> None:
         args: dict[str, Any] = dict(call.data)
         price = args.pop("price", None)
         _apply_taxon(store, args)
+        _check_ref(store.data.plantings, args.get("from_planting_id"), "from_planting_id")
         lot = SeedLot(**args)
         store.data.seeds[lot.id] = lot
         if price:
@@ -742,6 +754,8 @@ def async_register_services(hass: HomeAssistant) -> None:
         _check_ref(store.data.zones, args.get("zone_id"), "zone_id")
         if "due_on" in args:
             args["due_on"] = _iso(args["due_on"])
+        if "repeat_until" in args:
+            args["repeat_until"] = _iso(args["repeat_until"])
         for planting_id in args.get("planting_ids", []):
             _check_ref(store.data.plantings, planting_id, "planting_ids")
         for lot_id in args.get("seed_ids", []):

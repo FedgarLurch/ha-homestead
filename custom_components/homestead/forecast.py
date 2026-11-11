@@ -20,6 +20,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.translation import async_get_translations
 from homeassistant.util import dt as dt_util
 
+from .climate import CHILL_NEEDS, chill_hours, chill_start, gdd_by_year, gdd_today, parse_hourly, soil_days
 from .const import (
     CONF_ALERT_NOTIFY,
     CONF_HEAT_DAYS,
@@ -37,7 +38,7 @@ from .const import (
     SIGNAL_OUTLOOK_UPDATED,
 )
 from .crops import crop_traits, full_table, load_cropgraph, load_defaults
-from .models import is_indoor
+from .models import is_indoor, zone_soil_sensors
 from .notify import async_send
 from .outlook import (
     YOUNG_DAYS,
@@ -54,6 +55,7 @@ from .outlook import (
 )
 from .store import HomesteadStore
 from .units import IMPERIAL, METRIC, resolve_units, temperature_text
+from .water import parse_water_days, young_trees, zones_balance
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,6 +72,7 @@ FORECAST_DAILY = (
     "wind_speed_10m_max,wind_gusts_10m_max,weather_code"
 )
 ARCHIVE_DAILY = "temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code"
+WATER_DAILY = "precipitation_sum,et0_fao_evapotranspiration,temperature_2m_max,temperature_2m_min"
 
 
 async def async_crop_defaults(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
@@ -111,6 +114,87 @@ async def _open_meteo(hass: HomeAssistant, url: str, params: dict[str, Any]) -> 
     async with session.get(url, params=query, timeout=aiohttp.ClientTimeout(total=30)) as response:
         response.raise_for_status()
         return parse_open_meteo_daily(await response.json())
+
+
+async def async_fetch_water(
+    hass: HomeAssistant, options: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[tuple[str, float]]]:
+    """Rain, evapotranspiration and temperatures of the last 45 days and the next week, plus the hourly
+    soil temperature forecast at 6 cm (Open-Meteo only)."""
+    if not options.get(CONF_OPEN_METEO, True):
+        return [], []
+    session = async_get_clientsession(hass)
+    query = {
+        "latitude": hass.config.latitude,
+        "longitude": hass.config.longitude,
+        "timezone": "auto",
+        "daily": WATER_DAILY,
+        "hourly": "soil_temperature_6cm",
+        "past_days": 45,
+        "forecast_days": 7,
+    }
+    try:
+        async with session.get(
+            FORECAST_API, params=query, timeout=aiohttp.ClientTimeout(total=30)
+        ) as response:
+            response.raise_for_status()
+            raw = await response.json()
+            return parse_water_days(raw), parse_hourly(raw, "soil_temperature_6cm")
+    except Exception as err:  # noqa: BLE001 - no balance this time, the rest of the outlook still works
+        _LOGGER.debug("Open-Meteo water balance failed: %s", err)
+        return [], []
+
+
+async def _hourly_temperatures(
+    hass: HomeAssistant, url: str, params: dict[str, Any]
+) -> list[tuple[str, float]]:
+    session = async_get_clientsession(hass)
+    query = {"latitude": hass.config.latitude, "longitude": hass.config.longitude, "timezone": "auto"}
+    query |= {"hourly": "temperature_2m", **params}
+    async with session.get(url, params=query, timeout=aiohttp.ClientTimeout(total=60)) as response:
+        response.raise_for_status()
+        return parse_hourly(await response.json(), "temperature_2m")
+
+
+async def async_fetch_chill(hass: HomeAssistant, options: dict[str, Any]) -> dict[str, Any]:
+    """Cold hours of this winter from 1 November (Open-Meteo hourly temperatures)."""
+    now = dt_util.now()
+    start = chill_start(now.date())
+    if start is None or not options.get(CONF_OPEN_METEO, True):
+        return {}
+    days = (now.date() - start).days + 1
+    try:
+        if days <= 90:
+            hours = await _hourly_temperatures(hass, FORECAST_API, {"past_days": days, "forecast_days": 1})
+        else:  # the forecast API keeps 92 days: the archive for the older part of the winter
+            end = now.date() - timedelta(days=6)
+            archive = {"start_date": start.isoformat(), "end_date": end.isoformat()}
+            hours = await _hourly_temperatures(hass, ARCHIVE_API, archive)
+            hours += await _hourly_temperatures(hass, FORECAST_API, {"past_days": 7, "forecast_days": 1})
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Open-Meteo hourly temperatures failed: %s", err)
+        return {}
+    until = now.strftime("%Y-%m-%dT%H:00")
+    return {
+        "since": start.isoformat(),
+        "hours": chill_hours(hours, start, until),
+        "on": now.date().isoformat(),
+    }
+
+
+def _zone_moisture(hass: HomeAssistant, data: Any) -> dict[str, float]:
+    """Soil moisture now of each zone with its own (or a parent's) moisture sensor."""
+    out = {}
+    for zone in data.zones.values():
+        entity = zone_soil_sensors(data, zone.id).get("moisture")
+        state = hass.states.get(entity) if entity else None
+        try:
+            out[zone.id] = float(state.state) if state else None
+        except ValueError:
+            continue
+        if out[zone.id] is None:
+            del out[zone.id]
+    return out
 
 
 async def _forecast_from_entity(hass: HomeAssistant, entity_id: str) -> list[dict[str, Any]]:
@@ -212,6 +296,7 @@ async def async_history(
         "computed_on": today.isoformat(),
         "frost": frost_dates(days),
         "extremes": extremes(days, thresholds),
+        "gdd": gdd_by_year(days),
         "sources": sources,
         "first_day": days[0]["date"] if days else None,
     }
@@ -229,6 +314,11 @@ class Outlook:
         self.source: str | None = None
         self.alerts: list[dict[str, Any]] = []
         self.advice: dict[str, dict[str, Any]] = {}
+        self.water_days: list[dict[str, Any]] = []
+        self.water: dict[str, Any] = {}
+        self.soil_hours: list[tuple[str, float]] = []
+        self.chill: dict[str, Any] = {}
+        self.gdd: dict[str, Any] = {}
         self.climate: dict[str, Any] = {}
         self.updated: str | None = None
         self._notified: list[str] = []
@@ -280,6 +370,21 @@ class Outlook:
             verdict = advice(task.kind, self.forecast, task.due_on, tender_plant)
             if verdict is not None:
                 self.advice[task.id] = verdict
+        today = dt_util.now().date()
+        data = self.store.data
+        self.water = {
+            "days": self.water_days,
+            "zones": zones_balance(data, self.water_days, today, _zone_moisture(self.hass, data)),
+            "young": young_trees(data, self.water_days, today),
+        }
+        series = self.climate.get("gdd") or {}
+        now_gdd = gdd_today(series, self.water_days, today)
+        same_day = {
+            year: values[min(len(values), today.timetuple().tm_yday) - 1]
+            for year, values in series.items()
+            if values and year != str(today.year) and len(values) >= today.timetuple().tm_yday - 1
+        }
+        self.gdd = {"today": now_gdd, "years": same_day} if now_gdd is not None else {}
 
     def async_listen(self) -> Callable[[], None]:
         """Re-evaluate when plantings or tasks change; returns the unsubscribe."""
@@ -309,6 +414,9 @@ class Outlook:
         self.forecast, self.source = await async_fetch_forecast(self.hass, self.options)
         today = dt_util.now().date().isoformat()
         self.forecast = [d for d in self.forecast if d["date"] >= today]
+        self.water_days, self.soil_hours = await async_fetch_water(self.hass, self.options)
+        if self.chill.get("on") != dt_util.now().date().isoformat():
+            self.chill = await async_fetch_chill(self.hass, self.options)
         await self._async_evaluate()
         if history or self._stale():
             self.climate = await async_history(self.hass, self.options, self.thresholds)
@@ -371,6 +479,10 @@ class Outlook:
             "source": self.source,
             "alerts": self.alerts,
             "advice": self.advice,
+            "water": self.water,
+            "chill": {**self.chill, "needs": CHILL_NEEDS} if self.chill else {},
+            "gdd": self.gdd,
+            "soil_forecast": soil_days(self.soil_hours),
             "climate": self.climate,
             "thresholds": vars(self.thresholds),
             "updated": self.updated,

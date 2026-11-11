@@ -50,6 +50,17 @@ add_zone:
       selector:
         entity:
           domain: sensor
+    watering:
+      selector:
+        select:
+          translation_key: watering_mode
+          options:
+            - none
+            - can
+            - hose
+            - drip
+            - overhead
+            - valve
 
 update_zone:
   fields:
@@ -106,6 +117,17 @@ update_zone:
       selector:
         entity:
           domain: sensor
+    watering:
+      selector:
+        select:
+          translation_key: watering_mode
+          options:
+            - none
+            - can
+            - hose
+            - drip
+            - overhead
+            - valve
 
 delete_zone:
   fields:
@@ -225,6 +247,21 @@ add_planting:
           max: 180
           step: any
           mode: box
+    row_to:
+      example: "[7.68612, 45.07031]"
+      selector:
+        object:
+    watering:
+      selector:
+        select:
+          translation_key: watering_mode
+          options:
+            - none
+            - can
+            - hose
+            - drip
+            - overhead
+            - valve
     price:
       selector:
         number:
@@ -393,6 +430,21 @@ update_planting:
           max: 180
           step: any
           mode: box
+    row_to:
+      example: "[7.68612, 45.07031]"
+      selector:
+        object:
+    watering:
+      selector:
+        select:
+          translation_key: watering_mode
+          options:
+            - none
+            - can
+            - hose
+            - drip
+            - overhead
+            - valve
     status:
       selector:
         select:
@@ -841,6 +893,22 @@ add_event:
           min: 0
           step: 0.01
           mode: box
+    severity:
+      selector:
+        select:
+          translation_key: severity
+          options:
+            - few
+            - spread
+            - heavy
+    worked:
+      selector:
+        select:
+          translation_key: worked
+          options:
+            - "yes"
+            - partly
+            - "no"
 
 update_event:
   fields:
@@ -970,6 +1038,22 @@ update_event:
       selector:
         text:
           multiline: true
+    severity:
+      selector:
+        select:
+          translation_key: severity
+          options:
+            - few
+            - spread
+            - heavy
+    worked:
+      selector:
+        select:
+          translation_key: worked
+          options:
+            - "yes"
+            - partly
+            - "no"
 
 delete_event:
   fields:
@@ -1096,6 +1180,15 @@ add_task:
       selector:
         text:
           multiline: true
+    repeat_weeks:
+      selector:
+        number:
+          min: 1
+          max: 26
+          mode: box
+    repeat_until:
+      selector:
+        date:
 
 update_task:
   fields:
@@ -1165,6 +1258,15 @@ update_task:
       selector:
         text:
           multiline: true
+    repeat_weeks:
+      selector:
+        number:
+          min: 1
+          max: 26
+          mode: box
+    repeat_until:
+      selector:
+        date:
 
 delete_task:
   fields:
@@ -1267,6 +1369,9 @@ add_seed_lot:
       selector:
         text:
           multiline: true
+    from_planting_id:
+      selector:
+        text:
 
 update_seed_lot:
   fields:
@@ -1312,6 +1417,9 @@ update_seed_lot:
       selector:
         text:
           multiline: true
+    from_planting_id:
+      selector:
+        text:
 
 delete_seed_lot:
   fields:

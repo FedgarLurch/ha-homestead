@@ -292,6 +292,30 @@
         "metric": "Metrisch (°C, mm, m, kg, l)",
         "imperial": "Imperial (°F, in, ft, lb, gal)"
       }
+    },
+    "watering_mode": {
+      "options": {
+        "none": "Nicht bewässert (nur Regen)",
+        "can": "Gießkanne",
+        "hose": "Schlauch",
+        "drip": "Tropfbewässerung",
+        "overhead": "Von oben (Regner)",
+        "valve": "Automatisches Ventil"
+      }
+    },
+    "severity": {
+      "options": {
+        "few": "wenige",
+        "spread": "verbreitet",
+        "heavy": "Befall"
+      }
+    },
+    "worked": {
+      "options": {
+        "yes": "ja",
+        "partly": "teilweise",
+        "no": "nein"
+      }
     }
   },
   "services": {
@@ -338,6 +362,10 @@
         "soil_ec_entity": {
           "name": "Boden-EC-Sensor",
           "description": "Leitfähigkeitssensor dieser Zone (zum Beispiel ein Ecowitt WH52)."
+        },
+        "watering": {
+          "name": "Bewässerung",
+          "description": "Nur Regen, Gießkanne, Schlauch, Tropf, von oben oder automatisches Ventil; leer = wie die übergeordnete Zone."
         }
       }
     },
@@ -388,6 +416,10 @@
         "soil_ec_entity": {
           "name": "Boden-EC-Sensor",
           "description": "Leitfähigkeitssensor dieser Zone (zum Beispiel ein Ecowitt WH52)."
+        },
+        "watering": {
+          "name": "Bewässerung",
+          "description": "Nur Regen, Gießkanne, Schlauch, Tropf, von oben oder automatisches Ventil; leer = wie die übergeordnete Zone."
         }
       }
     },
@@ -520,6 +552,14 @@
         "notes": {
           "name": "Notizen",
           "description": "Freie Notizen."
+        },
+        "row_to": {
+          "name": "Reihenende",
+          "description": "Eine Pflanzenreihe: das andere Ende als [Längengrad, Breitengrad]; die Position ist der Reihenanfang."
+        },
+        "watering": {
+          "name": "Bewässerung",
+          "description": "Nur Regen, Gießkanne, Schlauch, Tropf, von oben oder automatisches Ventil; leer = wie die übergeordnete Zone."
         }
       }
     },
@@ -646,6 +686,14 @@
         "notes": {
           "name": "Notizen",
           "description": "Freie Notizen."
+        },
+        "row_to": {
+          "name": "Reihenende",
+          "description": "Eine Pflanzenreihe: das andere Ende als [Längengrad, Breitengrad]; die Position ist der Reihenanfang."
+        },
+        "watering": {
+          "name": "Bewässerung",
+          "description": "Nur Regen, Gießkanne, Schlauch, Tropf, von oben oder automatisches Ventil; leer = wie die übergeordnete Zone."
         }
       }
     },
@@ -966,6 +1014,14 @@
         "revenue": {
           "name": "Einnahme",
           "description": "Wird als mit dem Eintrag verknüpfte Einnahme erfasst."
+        },
+        "severity": {
+          "name": "Wie stark",
+          "description": "Schädling oder Krankheit (Problem-Ereignis): wenige, verbreitet, Befall."
+        },
+        "worked": {
+          "name": "Hat es gewirkt",
+          "description": "Behandlung: hat sie gewirkt."
         }
       }
     },
@@ -1036,6 +1092,14 @@
         "notes": {
           "name": "Notizen",
           "description": "Freie Notizen."
+        },
+        "severity": {
+          "name": "Wie stark",
+          "description": "Schädling oder Krankheit (Problem-Ereignis): wenige, verbreitet, Befall."
+        },
+        "worked": {
+          "name": "Hat es gewirkt",
+          "description": "Behandlung: hat sie gewirkt."
         }
       }
     },
@@ -1142,6 +1206,14 @@
         "notes": {
           "name": "Notizen",
           "description": "Freie Notizen."
+        },
+        "repeat_weeks": {
+          "name": "Wiederholen alle (Wochen)",
+          "description": "Satzweise Aussaat: erledigt, dieselbe Aufgabe kommt nach so vielen Wochen wieder."
+        },
+        "repeat_until": {
+          "name": "Wiederholen bis",
+          "description": "Letzter Tag der satzweisen Aussaat."
         }
       }
     },
@@ -1188,6 +1260,14 @@
         "notes": {
           "name": "Notizen",
           "description": "Freie Notizen."
+        },
+        "repeat_weeks": {
+          "name": "Wiederholen alle (Wochen)",
+          "description": "Satzweise Aussaat: erledigt, dieselbe Aufgabe kommt nach so vielen Wochen wieder."
+        },
+        "repeat_until": {
+          "name": "Wiederholen bis",
+          "description": "Letzter Tag der satzweisen Aussaat."
         }
       }
     },
@@ -1302,6 +1382,10 @@
         "notes": {
           "name": "Notizen",
           "description": "Freie Notizen."
+        },
+        "from_planting_id": {
+          "name": "Von Pflanze",
+          "description": "Eigenes Saatgut: ID der Mutterpflanze."
         }
       }
     },
@@ -1348,6 +1432,10 @@
         "notes": {
           "name": "Notizen",
           "description": "Freie Notizen."
+        },
+        "from_planting_id": {
+          "name": "Von Pflanze",
+          "description": "Eigenes Saatgut: ID der Mutterpflanze."
         }
       }
     },
@@ -1456,6 +1544,8 @@
     "better_on": "besser am {date}",
     "notification_compost": "♻️ {zone}: Kompost umsetzen ({days} Tage seit dem letzten Mal)",
     "notification_tool": "🔧 {tool}: Wartung fällig",
-    "notification_water": "🪴 Zu gießen: {plants}"
+    "notification_water": "🪴 Zu gießen: {plants}",
+    "notification_dry_zones": "💧 Heute gießen: {zones}",
+    "notification_young": "🌳 {plant}: seit {days} Tagen kein Wasser"
   }
 }

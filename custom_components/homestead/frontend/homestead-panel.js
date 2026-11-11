@@ -6,7 +6,7 @@ const ZONE_KINDS = ["vegetable_garden", "orchard", "flower_bed", "greenhouse", "
 
 const TEXT = {};
 // Metric or imperial: set from the integration options (auto = as Home Assistant). Data stays metric.
-const UNITS = { imperial: false };
+const UNITS = { imperial: false, comma: false };
 // Panel texts, one file per language in i18n/ (English as fallback), loaded before the first render.
 const VERSION = new URL(import.meta.url).search;
 async function loadTexts(lang) {
@@ -101,7 +101,39 @@ const QUANTITY_UNITS = {
 // The same in imperial units first; the metric ones stay for older entries.
 const IMPERIAL_UNITS = { harvest: ["lb", "oz", "pieces", "gal", "kg", "l"], foraging: ["lb", "oz", "pieces", "gal", "kg", "l"] };
 // Kinds with a "product" field, and its label.
-const PRODUCT_LABEL = { fertilizing: "product", treatment: "product", foraging: "what", wood_cutting: "essence", flock_in: "breed", animal_care: "feedOrCare" };
+const PRODUCT_LABEL = { problem: "pestWhat", fertilizing: "product", treatment: "product", foraging: "what", wood_cutting: "essence", flock_in: "breed", animal_care: "feedOrCare" };
+// Rotation: the next family after the last one grown in a bed (leaves after fruits, roots after leaves…).
+const ROTATION_ORDER = ["Solanaceae", "Fabaceae", "Brassicaceae", "Cucurbitaceae", "Apiaceae", "Amaryllidaceae", "Asteraceae", "Amaranthaceae"];
+const FAMILY_ICON = { Solanaceae: "🍅", Fabaceae: "🫛", Brassicaceae: "🥦", Cucurbitaceae: "🎃", Apiaceae: "🥕", Amaryllidaceae: "🧅", Asteraceae: "🥬", Amaranthaceae: "🌿" };
+const FAMILY_COLOR = { Solanaceae: "#f6d4cf", Fabaceae: "#d8ebcf", Brassicaceae: "#d6e4f3", Cucurbitaceae: "#f8e6c4", Apiaceae: "#f3dccb", Amaryllidaceae: "#e8dcf0", Asteraceae: "#dff0e6", Amaranthaceae: "#eee6cf" };
+const REPORT_CSS = `
+  body { font-family: Roboto, system-ui, sans-serif; color: #1f2420; margin: 24px; font-size: 13px; }
+  h2 { font-size: 30px; margin: 4px 0 0; } h3 { font-size: 15px; margin: 14px 0 6px; }
+  .sub { color: #5b6358; font-size: 12px; } .hint { color: #5b6358; }
+  .report-head { border-bottom: 2px solid #3a7d44; padding-bottom: 10px; }
+  .report-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+  .report-tile { border: 1px solid #dfe3dc; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 2px; }
+  .report-tile strong { font-size: 20px; }
+  .report-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .report-line { display: flex; justify-content: space-between; border-bottom: 1px solid #eef0ec; padding: 2px 0; }
+  .report-foot { margin-top: 18px; border-top: 1px solid #dfe3dc; padding-top: 6px; }
+  @page { size: A4; margin: 14mm; }
+`;
+const WATERING_MODES = ["none", "can", "hose", "drip", "overhead", "valve"];
+const WATERING_ICONS = { none: "🚫", can: "🪣", hose: "🧵", drip: "💧", overhead: "🌦️", valve: "🤖" };
+const POLLINATION_RANGE_M = 50;
+const MALE_WORDS = ["male", "maschio", "mâle", "männlich", "macho", "mannelijk", "tomuri", "matua", "chieftain"];
+// Fruit trees that set little fruit with their own pollen: another variety nearby is needed, except the self-fertile ones listed.
+const POLLINATION = {
+  "prunus avium": { partners: ["prunus avium"], self: ["lapins", "stella", "sunburst", "sweetheart", "skeena", "celeste", "santina", "sunset", "black star"] },
+  "malus domestica": { partners: ["malus"], self: [] },
+  "pyrus communis": { partners: ["pyrus"], self: ["conference"] },
+  "prunus dulcis": { partners: ["prunus dulcis"], self: ["tuono", "lauranne", "guara", "soleta", "belona", "independence", "avijor"] },
+  "corylus avellana": { partners: ["corylus"], self: [] },
+  "actinidia deliciosa": { partners: ["actinidia"], dioecious: true, self: [] },
+  "actinidia chinensis": { partners: ["actinidia"], dioecious: true, self: [] },
+  "actinidia arguta": { partners: ["actinidia"], dioecious: true, self: ["issai"] },
+};
 const PLANT_ICONS = { tree: "🌳", fruit_tree: "🍎", shrub: "🍃", vine: "🍇", vegetable: "🥕", herb: "🌿", flower: "🌸", houseplant: "🪴", other: "🌱" };
 // Years seeds usually keep germinating well, by botanical family (default 3).
 const SEED_VIABILITY = {
@@ -220,6 +252,69 @@ const STYLE = `
   .repeat-name { flex: 1; display: grid; }
   .care { border: 1px solid var(--divider-color); border-radius: 10px; padding: 6px 10px; display: grid; gap: 6px; }
   .care legend { font-weight: 700; padding: 0 4px; }
+  .po-grid { display: grid; grid-template-columns: minmax(0, 1fr) 48px 48px; gap: 4px 6px; align-items: center; text-align: center; }
+  .po-grid > span:nth-child(3n + 1) { text-align: left; }
+  .sub.ok { color: #1f5e24; }
+  .chill-line { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+  .chill-bar { height: 8px; border-radius: 4px; background: var(--secondary-background-color, #eef0ec); overflow: hidden; }
+  .chill-bar i { display: block; height: 8px; background: #3f7fbf; }
+  .pest-row { display: flex; gap: 10px; align-items: flex-start; padding: 4px 0; border-bottom: 1px solid var(--divider-color); }
+  .pest-row .main { flex: 1; display: flex; flex-direction: column; }
+  .worked { font-weight: 700; font-size: 12px; } .worked.yes { color: #1f5e24; } .worked.partly { color: #8a5a00; } .worked.no { color: #8f2b17; }
+  .judge { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .rot-grid { display: grid; gap: 4px; align-items: center; font-size: 13px; }
+  .rot-cell { border-radius: 6px; padding: 4px; text-align: center; background: #f4f5f2; }
+  .rot-cell.next { font-weight: 700; outline: 2px dashed var(--homestead-accent, #3a7d44); }
+  .report { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .report-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .report-tile { border: 1px solid var(--divider-color); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; }
+  .report-tile strong { font-size: 18px; }
+  .report-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .report-line { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--divider-color); }
+  .today-box { border: 1px solid var(--divider-color); border-radius: 12px; padding: 10px 12px; margin: 8px 0; display: flex; flex-direction: column; gap: 8px; }
+  .today-box h3 { margin: 0; }
+  .today-group { display: flex; flex-direction: column; gap: 2px; }
+  .today-row { display: flex; align-items: center; gap: 8px; min-height: 40px; background: none; border: none; border-bottom: 1px solid var(--divider-color); border-radius: 0; text-align: left; padding: 4px 0; color: inherit; font: inherit; }
+  .today-row .main { flex: 1; }
+  .water-chip { border-radius: 12px; padding: 2px 10px; font-size: 12px; font-weight: 700; white-space: nowrap; background: #e7f2e8; color: #1f4d26; }
+  .water-chip.water { background: #e3eefb; color: #1f4f8a; }
+  .water-chip.soon { background: #fff1dc; color: #7a4a00; }
+  .water-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .water-tiles > div { display: flex; flex-direction: column; padding: 6px 8px; border-radius: 8px; background: var(--secondary-background-color, #f4f5f2); }
+  .water-bars { display: flex; align-items: flex-end; gap: 2px; height: 80px; border-bottom: 1px solid var(--divider-color); }
+  .water-day { flex: 1; display: flex; gap: 1px; align-items: flex-end; height: 100%; }
+  .water-day.future { opacity: .45; }
+  .water-day i { flex: 1; border-radius: 2px 2px 0 0; min-height: 1px; }
+  .water-day i.rain { background: #3f7fbf; }
+  .water-day i.et { background: #e08a2c; }
+  .plan-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .plan-wrap { border: 1px solid var(--divider-color); border-radius: 12px; overflow: hidden; background: #fbfbf8; margin: 8px 0; }
+  svg.plan { display: block; width: 100%; height: min(62vh, 560px); touch-action: none; user-select: none; }
+  svg.plan.placing { cursor: crosshair; }
+  .plan-grid { fill: none; stroke: #e6e9e2; stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .plan-grid.major { stroke: #cfd5c8; }
+  .plan-zone { fill: rgba(122, 163, 90, .12); stroke: #3a7d44; stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+  .plan-bed { fill: rgba(122, 163, 90, .22); stroke: #7aa35a; stroke-width: 1.5; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+  .plan-bed.new { fill: rgba(255, 166, 0, .18); stroke: #c77700; }
+  .plan-side, .plan-label { fill: #1f2420; font-weight: 700; paint-order: stroke; stroke: #fbfbf8; stroke-width: 3px; vector-effect: non-scaling-stroke; }
+  .plan-plant { cursor: grab; }
+  .plan-dot { fill: #fff; stroke: #3a7d44; stroke-width: 2; vector-effect: non-scaling-stroke; }
+  .plan-plant.selected .plan-dot { stroke: #f9a825; stroke-width: 4; }
+  .plan-reach { fill: rgba(58, 125, 68, .07); stroke: #3a7d44; stroke-opacity: .45; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+  .plan-row { stroke: #6a8f2a; stroke-width: 5; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .plan-bad { stroke: #c0392b; stroke-width: 2; stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; }
+  .plan-bad-text { fill: #8f2b17; font-weight: 700; paint-order: stroke; stroke: #fff; stroke-width: 3px; vector-effect: non-scaling-stroke; }
+  .plan-measure { stroke: #5b6358; stroke-width: 1.5; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; }
+  .plan-zoom { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .plan-zoom button { min-width: 44px; min-height: 40px; }
+  .plan-bar { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .plan-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+  .plan-tools button { flex: 1 1 100px; min-height: 44px; }
+  .plan-info { display: flex; flex-direction: column; gap: 2px; padding: 8px; border: 1px solid var(--divider-color); border-radius: 10px; }
+  .plan-sides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .seg { display: flex; border: 1px solid var(--divider-color); border-radius: 10px; overflow: hidden; }
+  .seg button { flex: 1; border: none; border-radius: 0; min-height: 40px; }
+  .seg button.on { background: var(--homestead-accent, #3a7d44); color: #fff; font-weight: 700; }
   .sow-button { flex: none; border-radius: 20px; font-weight: 700; align-self: center; }
   .seed-filters input[type=search] { flex: 1 1 140px; min-width: 0; }
   .bulk-bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px; margin: 6px 0; border-radius: 10px; background: var(--secondary-background-color, #eef0ec); }
@@ -688,6 +783,7 @@ class HomesteadPanel extends HTMLElement {
       .addTo(this._map);
     L.circleMarker([latitude, longitude], { radius: 5, color: "#2196f3", interactive: false }).addTo(this._map);
     this._zoneLayer = L.layerGroup().addTo(this._map);
+    this._rowLayer = L.layerGroup().addTo(this._map);
     this._previewLayer = L.layerGroup().addTo(this._map);
     this._map.on("click", (ev) => this._mapClick(ev.latlng));
     new ResizeObserver(() => this._map.invalidateSize()).observe(this._mapWrap);
@@ -836,7 +932,8 @@ class HomesteadPanel extends HTMLElement {
     const candidates = [...this._data.zones, ...extra].filter(
       (z) => z.geometry && containsPoint(z.geometry, lng, lat),
     );
-    candidates.sort((a, b) => (a.area_m2 ?? Infinity) - (b.area_m2 ?? Infinity));
+    const area = (z) => z.area_m2 ?? polygonArea(z.geometry) ?? Infinity;
+    candidates.sort((a, b) => area(a) - area(b));
     return candidates[0]?.id ?? null;
   }
 
@@ -885,6 +982,11 @@ class HomesteadPanel extends HTMLElement {
 
   _syncMarkers() {
     const seen = new Set();
+    this._rowLayer?.clearLayers();
+    for (const p of this._data.plantings) {
+      if (p.row_to && hasPosition(p) && p.status === "active")
+        L.polyline([[p.latitude, p.longitude], [p.row_to[1], p.row_to[0]]], { color: "#6a8f2a", weight: 4, interactive: false }).addTo(this._rowLayer);
+    }
     for (const p of this._data.plantings) {
       if (!hasPosition(p) || (!this._showGone() && p.status !== "active" && p.id !== this._selected)) continue;
       seen.add(p.id);
@@ -973,6 +1075,7 @@ class HomesteadPanel extends HTMLElement {
   _setTab(tab) {
     if (tab === "expenses" && this._tab !== "expenses") this._expenseYear = undefined;
     if (tab !== "photos") this._planDraft = null;
+    this._plan = null;
     if (tab === "plantings" || tab === "zones") this._mapTab = tab;
     this._tab = tab;
     this._close();
@@ -1065,7 +1168,7 @@ class HomesteadPanel extends HTMLElement {
     this._newPlantingAt(latlng);
   }
 
-  _newPlantingAt(latlng, zoneId = this._zoneAt(latlng.lat, latlng.lng)) {
+  _newPlantingAt(latlng, zoneId = this._zoneAt(latlng.lat, latlng.lng), extra = {}) {
     this._clearSelection();
     this._showMessage("");
     this._tab = "plantings";
@@ -1081,6 +1184,7 @@ class HomesteadPanel extends HTMLElement {
       plant_type: ZONE_PLANT_TYPE[this._zone(zoneId)?.kind] || null,
       latitude: latlng.lat,
       longitude: latlng.lng,
+      ...extra,
     };
     this._syncMap();
     this._render();
@@ -1129,6 +1233,7 @@ class HomesteadPanel extends HTMLElement {
       fertilize_weeks: values.fertilize_weeks ? Number(values.fertilize_weeks) : null,
       moisture_entity: values.moisture_entity || null,
       moisture_min: values.moisture_min ? Number(values.moisture_min) : null,
+      watering: values.watering || null,
       notes: values.notes?.trim() || null,
     };
     if (this._form.id) {
@@ -1142,6 +1247,7 @@ class HomesteadPanel extends HTMLElement {
       }
       if (values.price) data.price = Number(values.price);
       if (values.supplier?.trim()) data.supplier = values.supplier.trim();
+      if (this._form.row_to) data.row_to = this._form.row_to;
       const result = await this._call("add_planting", data);
       if (result) this._saved(data.name);
     }
@@ -1161,6 +1267,7 @@ class HomesteadPanel extends HTMLElement {
       species: this._zoneForm.species || [],
       notes: values.notes?.trim() || null,
       ...Object.fromEntries(SOIL_SENSOR_FIELDS.map(([, attr]) => [attr, values[attr] || null])),
+      watering: values.watering || null,
     };
     const id = this._zoneForm.id;
     if (id) {
@@ -1348,6 +1455,7 @@ class HomesteadPanel extends HTMLElement {
 
   _render() {
     if (!this._aside) return;
+    UNITS.comma = this._decimalComma();
     this._tabsEl.replaceChildren(this._renderTabs());
     this._renderBanner();
     this._showMessage(this._message.text, this._message.error);
@@ -1366,6 +1474,7 @@ class HomesteadPanel extends HTMLElement {
     else if (this._transplantForm) content = this._renderTransplantForm();
     else if (this._zoneTap) content = this._renderZoneTap();
     else if (this._shot) content = this._renderShot();
+    else if (this._plan) content = this._renderPlan();
     else {
       const back = h("button", { type: "button", className: "back", onclick: () => this._setTab("more") }, `‹ ${this.t("tabMore")}`);
       const lists = {
@@ -1378,12 +1487,13 @@ class HomesteadPanel extends HTMLElement {
         analysis: () => this._renderAnalysis(),
         tools: () => [back, ...this._renderToolList()],
         photos: () => [back, ...this._renderPhotoPlan()],
+        report: () => this._renderReport(),
         more: () => this._renderMore(),
       };
       content = (lists[this._tab] || lists.diary)();
     }
     // The map only where it is used: plantings and zones, and their cards.
-    const wide = !(["plantings", "zones"].includes(this._tab) || this._form || this._zoneForm);
+    const wide = !!(this._plan && !this._form && !this._zoneForm) || !(["plantings", "zones"].includes(this._tab) || this._form || this._zoneForm);
     this._calendarOn = this._tab === "calendar" && content[0] === this._calWrap;
     this._content.replaceChildren(...content.filter(Boolean));
     if (this._calendarOn) this._renderCalendar();
@@ -1435,6 +1545,7 @@ class HomesteadPanel extends HTMLElement {
         item("expenses", "💶", this.t("tabExpenses"), `${year}: −${this._money(spent)} · +${this._money(earned)}`),
         item("tools", "🔧", this.t("tabTools"), toolsDue ? this.t("moreToolsDue", { count: toolsDue }) : this.t("moreTools", { count: this._data.tools.length }), !!toolsDue),
         item("photos", "📸", this.t("tabPhotos"), this._photoPlanSummary()),
+        item("report", "📄", this.t("reportMenu"), this.t("reportMenuSub")),
         h(
           "button",
           {
@@ -1814,6 +1925,7 @@ class HomesteadPanel extends HTMLElement {
         h("div", { className: "row" }, kind, quantity),
         this._datesFields(f),
         this._selectField(f, "zone_id", this._zoneOptions()),
+        this._waterSelect(f, this.t("wmLikeZone")),
         (careEl = this._careFields(f)),
         rotationEl,
         f.id ? this._selectField(f, "status", ["active", "dead", "removed"].map((s) => [s, this.t(s)])) : null,
@@ -1849,6 +1961,10 @@ class HomesteadPanel extends HTMLElement {
       f.id ? this._plantingActions(f) : null,
       f.id ? this._plantingExpenses(f) : null,
       f.id ? (this._cropEl = h("div", {}, this._cropBox(f))) : null,
+      f.id ? this._chillLine(f) : null,
+      f.id ? this._pestBox(f) : null,
+      f.id ? this._lineageBox(f) : null,
+      f.id && this._pollination(f) ? h("p", { className: this._pollination(f).startsWith("⚠️") ? "alert-line" : "hint" }, this._pollination(f)) : null,
       f.id ? this._careNotes(f) : null,
       f.id ? this._photoHistoryBox(f.id) : null,
       f.id ? (this._seasonsEl = h("div", {}, this._seasonsBox(f))) : null,
@@ -2970,6 +3086,7 @@ class HomesteadPanel extends HTMLElement {
       this._lastBackupBox(),
       this._weatherStrip(),
       ...this._soilLines(),
+      this._todayBox(),
       this._alertsBox(),
       this._todoBox(soon, null, h("button", { type: "button", onclick: () => this._openTask({ kind: "note", due_on: today() }) }, this.t("addTask"))),
       later ? h("button", { type: "button", className: "link todo-later", onclick: () => this._setTab("calendar") }, this.t("todoLater", { count: later })) : null,
@@ -3725,6 +3842,1070 @@ class HomesteadPanel extends HTMLElement {
     this._render();
   }
 
+  // ---------- pests, own seeds, next year, the year in one page ----------
+
+  /** Problems on this species in the garden, year by year, with the treatment that followed. */
+  _pestBox(planting) {
+    const key = this._cropKey(planting.species);
+    const same = new Set(this._data.plantings.filter((p) => this._cropKey(p.species) === key).map((p) => p.id));
+    const problems = this._data.events.filter((e) => e.kind === "problem" && same.has(e.planting_id) && e.product).sort((a, b) => b.done_on.localeCompare(a.done_on));
+    if (!problems.length) return null;
+    const treatmentAfter = (e) =>
+      this._data.events
+        .filter((t) => t.kind === "treatment" && t.planting_id === e.planting_id && t.done_on >= e.done_on && daysBetween(e.done_on, t.done_on) <= 21)
+        .sort((a, b) => a.done_on.localeCompare(b.done_on))[0];
+    const learned = this._pestLearned(key);
+    return h(
+      "div",
+      { className: "seasons" },
+      h("h3", {}, `🐛 ${this.t("pestTitle", { name: this._speciesLabel(key) })}`),
+      problems.slice(0, 12).map((e) => {
+        const t = treatmentAfter(e);
+        return h(
+          "div",
+          { className: "pest-row" },
+          h("strong", {}, e.done_on.slice(0, 4)),
+          h(
+            "span",
+            { className: "main" },
+            `${e.product} · ${this._date(e.done_on, false)}${e.severity ? ` · ${this.t(`sev_${e.severity}`)}` : ""}`,
+            t ? h("span", { className: "sub" }, `${t.product || this.t("ev_treatment")} ${this._date(t.done_on, false)}`) : null,
+          ),
+          t?.worked ? h("span", { className: `worked ${t.worked}` }, this.t(`wk_${t.worked}`)) : null,
+        );
+      }),
+      learned.map((l) => h("div", { className: "alert-line" }, this.t("pestLearned", { name: l.name, min: l.min, max: l.max, now: l.now ?? "–" }))),
+    );
+  }
+
+  /** Degree days at which each pest showed up on this crop over the years (two years at least). */
+  _pestLearned(key) {
+    const series = this._outlook?.climate?.gdd || {};
+    const ids = new Set(this._data.plantings.filter((p) => this._cropKey(p.species) === key).map((p) => p.id));
+    const byName = new Map();
+    for (const e of this._data.events) {
+      if (e.kind !== "problem" || !ids.has(e.planting_id) || !e.product) continue;
+      const value = gddOn(series, e.done_on);
+      if (value == null) continue;
+      const name = e.product.trim().toLowerCase();
+      const year = e.done_on.slice(0, 4);
+      const list = byName.get(name) || new Map();
+      if (!list.has(year) || value < list.get(year)) list.set(year, value);
+      byName.set(name, list);
+    }
+    const now = this._outlook?.gdd?.today ?? null;
+    return [...byName.entries()]
+      .filter(([, years]) => years.size >= 2)
+      .map(([name, years]) => ({ name: capitalize(name), min: Math.min(...years.values()), max: Math.max(...years.values()), now, seenThisYear: years.has(today().slice(0, 4)) }));
+  }
+
+  /** Today: pests that usually arrive about now (by degree days), and treatments to judge. */
+  _pestLines() {
+    const out = [];
+    const month = new Date().getMonth() + 1;
+    if (month >= 3 && month <= 10 && this._outlook?.gdd?.today != null) {
+      const keys = new Set(this._data.plantings.filter((p) => p.status === "active").map((p) => this._cropKey(p.species)));
+      for (const key of keys) {
+        for (const l of this._pestLearned(key)) {
+          if (!l.seenThisYear && l.now >= l.min - 80 && l.now <= l.max + 40) out.push(h("div", {}, `🐛 ${this.t("pestSoon", { name: l.name, crop: this._speciesLabel(key), min: l.min, max: l.max, now: l.now })}`));
+        }
+      }
+    }
+    const now = today();
+    const judge = this._data.events.filter((e) => e.kind === "treatment" && !e.worked && daysBetween(e.done_on, now) >= 10 && daysBetween(e.done_on, now) <= 30).slice(0, 3);
+    for (const e of judge) {
+      const target = this._planting(e.planting_id)?.name || this._zone(e.zone_id)?.name || "";
+      out.push(
+        h(
+          "div",
+          { className: "judge" },
+          h("span", {}, `🧪 ${this.t("pestJudge", { what: e.product || this.t("ev_treatment"), target, date: this._date(e.done_on, false) })}`),
+          ["yes", "partly", "no"].map((w) => h("button", { type: "button", onclick: () => this._call("update_event", { id: e.id, worked: w }) }, this.t(`wk_${w}`))),
+        ),
+      );
+    }
+    return out;
+  }
+
+  /** Succession sowing from a seed lot: every 3 weeks until the last sowing month of the crop card. */
+  _openSuccession(lot) {
+    const crop = this._crop(lot.species);
+    const months = [...(crop?.sow_outdoor || []), ...(crop?.sow_indoor || [])];
+    const year = new Date().getFullYear();
+    const last = months.length ? Math.max(...months) : 9;
+    const until = `${year}-${String(last).padStart(2, "0")}-${new Date(Date.UTC(year, last, 0)).getUTCDate()}`;
+    this._openTask({ kind: "sowing", due_on: today(), seed_ids: [lot.id], planting_ids: [], zone_ids: [], done_ids: [], repeat_weeks: 3, repeat_until: until > today() ? until : null });
+  }
+
+  /** Own seeds from a plant: the seed form filled in from it. */
+  _collectSeeds(planting) {
+    this._openSeed({
+      species: planting.species,
+      taxon_id: planting.taxon_id || null,
+      variety: planting.variety || null,
+      year: new Date().getFullYear(),
+      supplier: this.t("ownSeedsSupplier"),
+      from_planting_id: planting.id,
+    });
+  }
+
+  /** The line of a variety kept from own seeds: germination and harvest per plant, generation by generation. */
+  _lineageBox(planting) {
+    const chain = [];
+    const seen = new Set();
+    let p = planting;
+    while (p && !seen.has(p.id)) {
+      seen.add(p.id);
+      const lot = p.seed_lot_id ? this._data.seeds.find((s) => s.id === p.seed_lot_id) : null;
+      chain.unshift({ p, lot });
+      p = lot?.from_planting_id ? this._planting(lot.from_planting_id) : null;
+    }
+    if (chain.length < 2 && !chain[0]?.lot?.from_planting_id) return null;
+    const row = ({ p, lot }) => {
+      const germ = p.sown_count && p.germinated_count != null ? Math.round((p.germinated_count / p.sown_count) * 100) : null;
+      const kg = this._data.events.filter((e) => e.kind === "harvest" && e.planting_id === p.id && (e.unit || "kg") === "kg").reduce((s, e) => s + (e.quantity || 0), 0);
+      const per = kg && p.quantity ? (kg / p.quantity).toFixed(1).replace(".", UNITS.comma ? "," : ".") : null;
+      const from = lot?.from_planting_id ? `🌰 ${this.t("ownSeedsFrom", { year: lot.year || "" })}` : lot ? [lot.supplier, lot.year].filter(Boolean).join(" ") || this._seedName(lot) : "—";
+      return h(
+        "div",
+        { className: "pest-row" },
+        h("strong", {}, String(this._plantingYear(p) || "")),
+        h("span", { className: "main" }, from, h("span", { className: "sub" }, [germ != null ? this.t("lineGerm", { value: germ }) : null, per ? this.t("linePer", { value: per }) : null].filter(Boolean).join(" · ") || "—")),
+      );
+    };
+    return h("div", { className: "seasons" }, h("h3", {}, `🧬 ${this.t("lineageTitle")}`), chain.map(row));
+  }
+
+  /** Beds of a vegetable zone: families of the last years and the one proposed for next year. */
+  _nextYearBox(zone) {
+    const month = new Date().getMonth() + 1;
+    if (!(month >= 9 || month <= 3)) return null;
+    const beds = [zone, ...[...this._zoneDescendants(zone.id)].map((id) => this._zone(id))].filter((z) => z && this._data.plantings.some((p) => p.zone_id === z.id));
+    if (!beds.length) return null;
+    const next = new Date().getFullYear() + (month >= 9 ? 1 : 0);
+    const years = [next - 3, next - 2, next - 1];
+    const familiesOf = (bed, year) => [...new Set(this._data.plantings.filter((p) => p.zone_id === bed.id && this._plantingYear(p) === year).map((p) => this._family(p)).filter(Boolean))];
+    const rows = beds.map((bed) => {
+      const history = years.map((y) => familiesOf(bed, y));
+      const last = [...history].reverse().find((f) => f.length)?.[0];
+      const recent = new Set(history.flat());
+      const i = ROTATION_ORDER.indexOf(last);
+      let proposal = i >= 0 ? ROTATION_ORDER[(i + 1) % ROTATION_ORDER.length] : ROTATION_ORDER.find((f) => !recent.has(f));
+      if (recent.has(proposal)) proposal = ROTATION_ORDER.find((f) => !recent.has(f)) || proposal;
+      return { bed, history, proposal };
+    });
+    const cell = (families) => h("span", { className: "rot-cell", style: families[0] ? `background:${FAMILY_COLOR[families[0]] || "#eceee8"}` : "" }, families.map((f) => FAMILY_ICON[f] || f.slice(0, 4)).join(" ") || "–");
+    const lots = (family) => this._data.seeds.filter((s) => !s.finished && this._crop(s.species)?.family === family);
+    return h(
+      "div",
+      { className: "seasons" },
+      h("h3", {}, `🔄 ${this.t("nextYearTitle", { year: next })}`),
+      h(
+        "div",
+        { className: "rot-grid", style: `grid-template-columns: minmax(0, 1.4fr) repeat(${years.length + 1}, minmax(0, 1fr))` },
+        h("span"),
+        years.map((y) => h("span", { className: "sub" }, String(y))),
+        h("strong", {}, String(next)),
+        rows.flatMap(({ bed, history, proposal }) => [h("span", {}, bed.name), ...history.map(cell), h("span", { className: "rot-cell next", style: `background:${FAMILY_COLOR[proposal] || "#eceee8"}` }, `${FAMILY_ICON[proposal] || ""} ${proposal || "–"}`)]),
+      ),
+      h("p", { className: "hint" }, this.t("nextYearHint")),
+      [...new Set(rows.map((r) => r.proposal).filter(Boolean))].map((family) => {
+        const have = lots(family);
+        return h("div", { className: "sub" }, `${FAMILY_ICON[family] || ""} ${family}: ${have.length ? have.map((s) => this._seedName(s)).join(", ") : this.t("nextYearNoSeeds")}`);
+      }),
+    );
+  }
+
+  // ---------- the year in one page ----------
+
+  _renderReport() {
+    const years = [...new Set([String(new Date().getFullYear()), ...this._data.events.map((e) => e.done_on.slice(0, 4))])].sort().reverse();
+    this._reportYear ??= years[0];
+    const year = this._reportYear;
+    const page = this._reportPage(year);
+    return [
+      h("button", { type: "button", className: "back", onclick: () => this._setTab("more") }, `‹ ${this.t("tabMore")}`),
+      h(
+        "div",
+        { className: "row" },
+        h("select", { onchange: (ev) => ((this._reportYear = ev.target.value), this._render()) }, years.map((y) => h("option", { value: y, selected: y === year }, y))),
+        h("button", { type: "button", className: "primary", onclick: () => this._printReport(page) }, `🖨️ ${this.t("reportPrint")}`),
+      ),
+      page,
+    ];
+  }
+
+  _reportPage(year) {
+    const of = (list, key) => list.filter((x) => (x[key] || "").startsWith(year));
+    const events = of(this._data.events, "done_on");
+    const harvests = events.filter((e) => e.kind === "harvest" && e.quantity);
+    const toKg = { kg: 1, lb: 0.4536, oz: 0.02835 };
+    const kg = harvests.reduce((s, e) => s + (toKg[e.unit || "kg"] ? e.quantity * toKg[e.unit || "kg"] : 0), 0);
+    const eggs = events.filter((e) => e.kind === "eggs").reduce((s, e) => s + (e.quantity || 0), 0);
+    const money = of(this._data.expenses, "spent_on").reduce((s, x) => s + (x.income ? x.amount : -x.amount), 0);
+    const born = this._data.plantings.filter((p) => String(this._plantingYear(p)) === year);
+    const own = born.filter((p) => this._data.seeds.find((s) => s.id === p.seed_lot_id)?.from_planting_id);
+    const byCrop = new Map();
+    for (const e of harvests) {
+      const p = this._planting(e.planting_id);
+      const name = p ? this._speciesLabel(this._cropKey(p.species)) : "—";
+      const unit = e.unit || "kg";
+      const k = `${name}|${unit}`;
+      byCrop.set(k, (byCrop.get(k) || 0) + e.quantity);
+    }
+    const best = [...byCrop.entries()].sort((a, b) => (b[1] * (toKg[b[0].split("|")[1]] || 0.001)) - (a[1] * (toKg[a[0].split("|")[1]] || 0.001))).slice(0, 6);
+    const extremes = (this._outlook?.climate?.extremes || []).filter((x) => x.start.startsWith(year));
+    const gddSeries = this._outlook?.climate?.gdd?.[year];
+    const reviews = events.filter((e) => e.kind === "review");
+    const problems = new Map();
+    for (const e of events.filter((e) => e.kind === "problem" && e.product)) problems.set(e.product.trim(), (problems.get(e.product.trim()) || 0) + 1);
+    const mass = UNITS.imperial ? `${Math.round(kg / 0.4536)} lb` : `${Math.round(kg)} kg`;
+    const tile = (label, value, sub = "") => h("div", { className: "report-tile" }, h("span", { className: "sub" }, label), h("strong", {}, value), sub ? h("span", { className: "sub" }, sub) : null);
+    const xIcon = { frost: "❄️", heatwave: "🔥", heat_extreme: "🔥", hail: "🌨️", heavy_rain: "🌧️" };
+    return h(
+      "div",
+      { className: "report" },
+      h("div", { className: "report-head" }, h("span", { className: "sub" }, this.t("reportKicker")), h("h2", {}, this.t("reportTitle", { year }))),
+      h(
+        "div",
+        { className: "report-tiles" },
+        tile(this.t("reportHarvest"), mass),
+        eggs ? tile(this.t("reportEggs"), eggs.toLocaleString(this._lang())) : null,
+        tile(this.t("reportBalance"), this._money(money)),
+        tile(this.t("reportNew"), String(born.length), own.length ? this.t("reportOwn", { count: own.length }) : ""),
+      ),
+      h(
+        "div",
+        { className: "report-cols" },
+        h("div", {}, h("h3", {}, this.t("reportBest")), best.length ? best.map(([k, q]) => h("div", { className: "report-line" }, h("span", {}, k.split("|")[0]), h("span", {}, this._quantity(Math.round(q * 10) / 10, k.split("|")[1])))) : h("p", { className: "hint" }, "—")),
+        h(
+          "div",
+          {},
+          h("h3", {}, this.t("reportWeather")),
+          extremes.length ? extremes.slice(0, 8).map((x) => h("div", {}, `${xIcon[x.kind] || "•"} ${this.t(`xt_${x.kind}`)} ${this._date(x.start, false)}${x.end !== x.start ? `–${this._date(x.end, false)}` : ""}`)) : h("p", { className: "hint" }, "—"),
+          gddSeries?.length ? h("div", {}, `🌡️ ${this.t("reportGdd", { value: gddSeries.at(-1).toLocaleString(this._lang()) })}`) : null,
+        ),
+      ),
+      problems.size ? h("div", {}, h("h3", {}, `🐛 ${this.t("reportPests")}`), h("div", {}, [...problems.entries()].map(([n, c]) => `${n} ×${c}`).join(" · "))) : null,
+      h(
+        "div",
+        { className: "report-cols" },
+        h("div", {}, h("h3", {}, this.t("reportKeep")), reviews.filter((r) => r.keep).map((r) => h("div", {}, `✓ ${this._planting(r.planting_id)?.name || this._zone(r.zone_id)?.name || ""}: ${r.keep}`)), reviews.some((r) => r.keep) ? null : h("p", { className: "hint" }, "—")),
+        h("div", {}, h("h3", {}, this.t("reportAvoid")), reviews.filter((r) => r.avoid).map((r) => h("div", {}, `✗ ${this._planting(r.planting_id)?.name || this._zone(r.zone_id)?.name || ""}: ${r.avoid}`)), reviews.some((r) => r.avoid) ? null : h("p", { className: "hint" }, "—")),
+      ),
+      h("p", { className: "sub report-foot" }, this.t("reportFoot")),
+    );
+  }
+
+  /** A clean page in a new window, printed from there (the panel lives inside Home Assistant's frame). */
+  _printReport(page) {
+    const win = window.open("", "_blank");
+    if (!win) {
+      this._showMessage(this.t("reportPopup"), true);
+      return;
+    }
+    win.document.title = page.querySelector("h2")?.textContent || "Homestead";
+    const style = win.document.createElement("style");
+    style.textContent = REPORT_CSS;
+    win.document.head.append(style);
+    win.document.body.append(win.document.importNode(page, true));
+    setTimeout(() => win.print(), 300);
+  }
+
+  // ---------- water ----------
+
+  _waterSelect(form, inherit) {
+    return this._selectField(form, "watering", [["", inherit], ...WATERING_MODES.map((m) => [m, `${WATERING_ICONS[m]} ${this.t(`wm_${m}`)}`])]);
+  }
+
+  /** "✨ Today in the garden": what the weather and the sensors say, nothing to fill in. */
+  _todayBox() {
+    if (!this._outlook) return null;
+    const water = this._outlook.water || {};
+    const zones = Object.entries(water.zones || {})
+      .map(([id, b]) => ({ zone: this._zone(id), b }))
+      .filter((x) => x.zone)
+      .sort((a, b) => b.b.deficit_mm - a.b.deficit_mm);
+    const young = (water.young || []).map((t) => ({ t, p: this._planting(t.planting_id) })).filter((x) => x.p);
+    const parts = [...this._climateLines(), ...this._pestLines()];
+    if (!zones.length && !young.length && !parts.length) return null;
+    const chip = (verdict) => h("span", { className: `water-chip ${verdict}` }, this.t(`water_${verdict}`));
+    const thirsty = young.filter((x) => x.t.verdict === "water");
+    return h(
+      "div",
+      { className: "today-box" },
+      h("h3", {}, `✨ ${this.t("todayTitle")}`),
+      zones.length
+        ? h(
+            "div",
+            { className: "today-group" },
+            h("strong", {}, `💧 ${this.t("waterTitle")}`),
+            zones.map(({ zone, b }) =>
+              h(
+                "button",
+                { type: "button", className: "today-row", onclick: () => this._selectZone(zone.id) },
+                h("span", { className: "main" }, `${ZONE_ICONS[zone.kind] || "📍"} ${zone.name}`),
+                h("span", { className: "sub" }, b.soil != null ? this.t("waterSoil", { value: Math.round(b.soil) }) : b.deficit_mm ? `−${rainText(b.deficit_mm)}` : this.t("waterEven")),
+                chip(b.verdict),
+              ),
+            ),
+          )
+        : null,
+      young.length
+        ? h(
+            "div",
+            { className: "today-group" },
+            h("strong", {}, `🌳 ${this.t("youngTitle")}`),
+            young.map(({ t, p }) =>
+              h(
+                "button",
+                { type: "button", className: "today-row", onclick: () => this._select(p.id) },
+                h("span", { className: "main" }, `${PLANT_ICONS[p.plant_type] || "🌳"} ${p.name}`),
+                h("span", { className: "sub" }, this.t("youngDry", { days: t.dry_days })),
+                chip(t.verdict),
+              ),
+            ),
+            thirsty.length
+              ? h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "primary",
+                    onclick: async () => {
+                      let count = 0;
+                      for (const { p } of thirsty) if (await this._call("add_event", { kind: "watering", planting_id: p.id, done_on: today() })) count++;
+                      this._showMessage(`✓ ${this.t("wateredDone", { count })}`);
+                    },
+                  },
+                  `💧 ${this.t("youngWatered", { count: thirsty.length })}`,
+                )
+              : null,
+          )
+        : null,
+      parts.length ? h("div", { className: "today-group" }, parts) : null,
+    );
+  }
+
+  /** "✨ Today": cold hours, degree days, daylight, and what can go out now. */
+  _climateLines() {
+    const out = [];
+    const chill = this._outlook?.chill;
+    if (chill?.hours != null) out.push(h("div", {}, `🍑 ${this.t("chillLine", { hours: chill.hours.toLocaleString(this._lang()) })}`));
+    const gdd = this._outlook?.gdd;
+    const month = new Date().getMonth() + 1;
+    if (gdd?.today && month >= 3 && month <= 10) {
+      const last = gdd.years?.[String(new Date().getFullYear() - 1)];
+      out.push(h("div", {}, `🌡️ ${this.t("gddLine", { value: gdd.today.toLocaleString(this._lang()) })}${last != null ? ` · ${this.t("gddLast", { value: last.toLocaleString(this._lang()) })}` : ""}`));
+    }
+    const light = this._daylight();
+    if (light) out.push(h("div", {}, `☀️ ${light}`));
+    const rows = this._plantOutRows();
+    if (rows.length) out.push(this._plantOutTable(rows));
+    return out;
+  }
+
+  _daylight(day = today()) {
+    const lat = this._hass.config.latitude;
+    if (lat == null) return "";
+    const len = dayLength(lat, day);
+    const delta = Math.round((dayLength(lat, addDays(day, 1)) - len) * 60);
+    const text = this.t("daylight", { hours: Math.floor(len), minutes: String(Math.round((len % 1) * 60)).padStart(2, "0"), delta: `${delta >= 0 ? "+" : "−"}${Math.abs(delta)}` });
+    // Long-day onions start their bulb above about 14 hours of light.
+    const onions = this._data.plantings.some((p) => p.status === "active" && this._cropKey(p.species) === "allium cepa") || this._data.seeds.some((s) => !s.finished && this._cropKey(s.species) === "allium cepa");
+    if (!onions || len >= 14) return text;
+    for (let i = 1; i <= 45; i++) {
+      if (dayLength(lat, addDays(day, i)) >= 14) return `${text} · 🧅 ${this.t("onionDays", { date: this._date(addDays(day, i), false) })}`;
+    }
+    return text;
+  }
+
+  /** Lots to sow outdoors and seedlings to plant out this month, against soil, nights and season. */
+  _plantOutRows() {
+    const month = new Date().getMonth() + 1;
+    const rows = [];
+    const seen = new Set();
+    const add = (name, species, key) => {
+      const ckey = this._cropKey(species);
+      if (!ckey || seen.has(ckey + key)) return;
+      const crop = this._crop(species);
+      if (!crop || !this._inMonth(crop, [key], month)) return;
+      seen.add(ckey + key);
+      rows.push({ name, crop });
+    };
+    for (const lot of this._data.seeds) if (!lot.finished) add(this._seedName(lot), lot.species, "sow_outdoor");
+    for (const p of this._data.plantings) if (p.status === "active" && p.germinated_on && this._inNursery(p)) add(p.name, p.species, "plant_out");
+    return rows.slice(0, 8).map((r) => ({ ...r, ...this._plantOutCheck(r.crop) }));
+  }
+
+  _plantOutCheck(crop) {
+    const forecast = this._outlook?.forecast || [];
+    const tender = crop.warm || (crop.hardiness_c ?? -5) > 0;
+    const limit = tender ? 10 : 2;
+    const soilNow = this._soilNow().temperature?.value ?? this._outlook?.soil_forecast?.[today()]?.mean ?? null;
+    const soilOk = crop.min_soil_c == null || soilNow == null ? null : soilNow >= crop.min_soil_c;
+    const week = forecast.slice(0, 7).filter((d) => d.t_min != null);
+    const nightsOk = week.length ? week.every((d) => d.t_min >= limit) : null;
+    let verdict;
+    if (soilOk === false) verdict = this.t("poSoil", { now: this._number(this._degValue(soilNow)), min: this._number(this._degValue(crop.min_soil_c)) });
+    else if (nightsOk === false) {
+      const from = forecast.findIndex((d, i) => forecast.slice(i, i + 4).every((x) => x.t_min != null && x.t_min >= limit) && forecast.slice(i, i + 4).length === 4);
+      verdict = from > 0 ? this.t("poFrom", { date: this._date(forecast[from].date, false) }) : this.t("poWait");
+    } else verdict = this.t("poYes");
+    return { soilOk, nightsOk, ok: soilOk !== false && nightsOk !== false, verdict };
+  }
+
+  _plantOutTable(rows) {
+    const mark = (v) => (v == null ? "–" : v ? "✅" : "⚠️");
+    return h(
+      "div",
+      { className: "today-group" },
+      h("strong", {}, `🌱 ${this.t("poTitle")}`),
+      h(
+        "div",
+        { className: "po-grid" },
+        h("span", { className: "sub" }), h("span", { className: "sub" }, this.t("poSoilCol")), h("span", { className: "sub" }, this.t("poNightCol")),
+        rows.flatMap((r) => [
+          h("span", {}, r.name, h("br"), h("span", { className: `sub ${r.ok ? "ok" : "warn"}` }, r.verdict)),
+          h("span", {}, mark(r.soilOk)),
+          h("span", {}, mark(r.nightsOk)),
+        ]),
+      ),
+    );
+  }
+
+  /** Fruit tree card: cold hours of this winter against what the species needs. */
+  _chillLine(planting) {
+    const chill = this._outlook?.chill;
+    const need = chill?.needs?.[this._cropKey(planting.species)];
+    if (chill?.hours == null || !need || planting.status !== "active") return null;
+    const pct = Math.min(100, Math.round((chill.hours / need) * 100));
+    return h(
+      "div",
+      { className: "chill-line" },
+      h("span", {}, `🍑 ${this.t("chillTree", { hours: chill.hours, need })}`),
+      h("div", { className: "chill-bar" }, h("i", { style: `width:${pct}%` })),
+    );
+  }
+
+  /** Zone card: rain against evaporation, what is missing, and one tap to log the watering. */
+  _waterBox(zone) {
+    const top = this._topZone(zone.id);
+    const b = this._outlook?.water?.zones?.[top];
+    const days = this._outlook?.water?.days || [];
+    const mode = this._zoneWatering(zone.id);
+    if (mode === "none") return h("p", { className: "hint" }, `🚫 ${this.t("wm_none")}`);
+    if (!b) return null;
+    const now = today();
+    const shown = days.filter((d) => d.date >= addDays(now, -14) && d.date <= addDays(now, 3));
+    const max = Math.max(1, ...shown.map((d) => Math.max(d.rain_mm || 0, d.et0_mm || 0)));
+    const bars = h(
+      "div",
+      { className: "water-bars", "aria-hidden": "true" },
+      shown.map((d) =>
+        h(
+          "div",
+          { className: `water-day${d.date >= now ? " future" : ""}`, title: `${this._date(d.date, false)}: ${rainText(d.rain_mm || 0)} / ${rainText(d.et0_mm || 0)}` },
+          h("i", { className: "rain", style: `height:${((d.rain_mm || 0) / max) * 100}%` }),
+          h("i", { className: "et", style: `height:${((d.et0_mm || 0) / max) * 100}%` }),
+        ),
+      ),
+    );
+    const litres = b.deficit_mm;
+    return h(
+      "div",
+      { className: "seasons water-box" },
+      h("h3", {}, `💧 ${this.t("waterBalance")} `, h("span", { className: `water-chip ${b.verdict}` }, this.t(`water_${b.verdict}`))),
+      h(
+        "div",
+        { className: "water-tiles" },
+        h("div", {}, h("span", { className: "sub" }, this.t("waterRain")), h("strong", {}, rainText(b.rain_mm))),
+        h("div", {}, h("span", { className: "sub" }, this.t("waterEt")), h("strong", {}, rainText(b.et0_mm))),
+        h("div", {}, h("span", { className: "sub" }, this.t("waterMissing")), h("strong", {}, b.deficit_mm ? `−${rainText(b.deficit_mm)}` : "0")),
+      ),
+      bars,
+      h("div", { className: "sub" }, this.t("waterBarsHint")),
+      b.soil != null ? h("div", {}, `🌱 ${this.t("waterSoil", { value: Math.round(b.soil) })}`) : null,
+      litres >= 1 && b.verdict !== "ok" ? h("div", {}, this.t("waterLitres", { value: UNITS.imperial ? `${(litres * 0.0245).toFixed(2)} gal/ft²` : `${Math.round(litres)} l/m²` })) : null,
+      b.rain_next_mm >= 1 ? h("div", { className: "sub" }, this.t("waterComing", { value: rainText(b.rain_next_mm) })) : null,
+      b.watered ? h("div", { className: "sub" }, this.t("waterLast", { date: this._date(b.watered) })) : null,
+      h(
+        "button",
+        {
+          type: "button",
+          className: "primary",
+          onclick: async () => {
+            if (await this._call("add_event", { kind: "watering", zone_id: zone.id, done_on: today() })) this._showMessage(`✓ ${this.t("waterLogged", { name: zone.name })}`);
+          },
+        },
+        `💧 ${this.t("waterLog")}`,
+      ),
+    );
+  }
+
+  _topZone(zoneId) {
+    let z = this._zone(zoneId);
+    const seen = new Set();
+    while (z?.parent_id && this._zone(z.parent_id) && !seen.has(z.id)) {
+      seen.add(z.id);
+      z = this._zone(z.parent_id);
+    }
+    return z?.id;
+  }
+
+  _zoneWatering(zoneId) {
+    const seen = new Set();
+    for (let z = this._zone(zoneId); z && !seen.has(z.id); z = this._zone(z.parent_id)) {
+      seen.add(z.id);
+      if (z.watering) return z.watering;
+    }
+    return null;
+  }
+
+  // ---------- zone in plan ----------
+
+  /** A flat frame in metres around the zone: x to the east, y to the south (as SVG). */
+  _planFrame(zone) {
+    const ring = zone.geometry.coordinates[0];
+    const lons = ring.map((c) => c[0]);
+    const lats = ring.map((c) => c[1]);
+    const lon0 = (Math.min(...lons) + Math.max(...lons)) / 2;
+    const lat0 = (Math.min(...lats) + Math.max(...lats)) / 2;
+    const kx = 111320 * Math.cos((lat0 * Math.PI) / 180);
+    const ky = 110540;
+    return {
+      xy: (lon, lat) => [(lon - lon0) * kx, (lat0 - lat) * ky],
+      lonlat: (x, y) => [round(lon0 + x / kx), round(lat0 - y / ky)],
+    };
+  }
+
+  _openPlan(zoneId) {
+    const zone = this._zone(zoneId);
+    if (!zone?.geometry) {
+      this._showMessage(this.t("planNoShape"), true);
+      return;
+    }
+    this._clearSelection();
+    this._showMessage("");
+    this._plan = { zoneId, view: null, mode: null, kind: "one", pick: "", spacing: null, rowStart: null, selected: null, bed: null };
+    this._syncMap();
+    this._render();
+  }
+
+  /** Plants of the zone and of the zones inside it, with a position, in metres. */
+  _planPlants(zoneId, frame) {
+    const inside = new Set([zoneId, ...this._zoneDescendants(zoneId)]);
+    return this._data.plantings
+      .filter((p) => p.status === "active" && hasPosition(p) && inside.has(p.zone_id))
+      .map((p) => {
+        const [x, y] = frame.xy(p.longitude, p.latitude);
+        const end = p.row_to ? frame.xy(p.row_to[0], p.row_to[1]) : null;
+        const spacing = this._crop(p.species)?.spacing_cm;
+        return { p, x, y, end, r: spacing ? spacing / 200 : null };
+      });
+  }
+
+  /** Pairs closer than 1 m whose crops harm each other (CropGraph "bad" companions). */
+  _badPairs(items) {
+    const out = [];
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i];
+        const b = items[j];
+        const d = itemDistance(a, b);
+        if (d > 1) continue;
+        const ka = this._cropKey(a.p.species);
+        const kb = this._cropKey(b.p.species);
+        if (!ka || !kb || ka === kb) continue;
+        if (this._crop(a.p.species)?.bad?.includes(kb) || this._crop(b.p.species)?.bad?.includes(ka)) out.push({ a, b, d });
+      }
+    }
+    return out;
+  }
+
+  _metres(m, digits = 2) {
+    return UNITS.imperial ? `${(m * 3.28084).toFixed(1)} ft` : `${m.toFixed(digits).replace(".", this._decimalComma() ? "," : ".")} m`;
+  }
+
+  _decimalComma() {
+    return (0.5).toLocaleString(this._lang()).includes(",");
+  }
+
+  /** A length typed by the user (m or ft) back to metres. */
+  _toMetres(value) {
+    const n = Number(String(value).replace(",", "."));
+    return Number.isFinite(n) ? (UNITS.imperial ? n / 3.28084 : n) : NaN;
+  }
+
+  _fromMetres(m) {
+    return Math.round((UNITS.imperial ? m * 3.28084 : m) * 100) / 100;
+  }
+
+  _renderPlan() {
+    const plan = this._plan;
+    const zone = this._zone(plan.zoneId);
+    if (!zone?.geometry) {
+      this._plan = null;
+      return this._renderZoneList();
+    }
+    const frame = this._planFrame(zone);
+    const outline = zone.geometry.coordinates[0].slice(0, -1).map(([lon, lat]) => frame.xy(lon, lat));
+    const xs = outline.map((p) => p[0]);
+    const ys = outline.map((p) => p[1]);
+    const bounds = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+    plan.view ??= { x: bounds.x - 1, y: bounds.y - 1, w: bounds.w + 2, h: bounds.h + 2 };
+    const items = this._planPlants(zone.id, frame);
+    const beds = [...this._zoneDescendants(zone.id)].map((id) => this._zone(id)).filter((z) => z?.geometry);
+    const bad = this._badPairs(items);
+    const svg = this._planSvg(zone, frame, outline, items, beds, bad);
+    const area = formatArea(zone.area_m2 ?? polygonArea(zone.geometry));
+    return [
+      h(
+        "div",
+        { className: "plan-head" },
+        h("button", { type: "button", className: "back", onclick: () => ((this._plan = null), this._selectZone(zone.id)) }, `‹ ${zone.name}`),
+        h("span", { className: "sub" }, [`${this._metres(bounds.w, 1)} × ${this._metres(bounds.h, 1)}`, area, this.t("planCount", { count: items.length })].filter(Boolean).join(" · ")),
+      ),
+      h("div", { className: "plan-wrap" }, svg),
+      h(
+        "div",
+        { className: "plan-zoom" },
+        h("button", { type: "button", "aria-label": this.t("planZoomIn"), onclick: () => this._planZoom(0.6) }, "＋"),
+        h("button", { type: "button", "aria-label": this.t("planZoomOut"), onclick: () => this._planZoom(1 / 0.6) }, "－"),
+        h("button", { type: "button", onclick: () => ((plan.view = null), this._render()) }, this.t("planFit")),
+        h("span", { className: "sub" }, this.t("planGrid", { step: this._metres(this._planStep(), this._planStep() < 1 ? 1 : 0) })),
+      ),
+      this._planBar(zone, frame, outline, items, beds, bad),
+    ];
+  }
+
+  _planStep() {
+    const w = this._plan.view.w;
+    return w > 40 ? 5 : w > 8 ? 1 : 0.1;
+  }
+
+  _planZoom(factor) {
+    const v = this._plan.view;
+    const cx = v.x + v.w / 2;
+    const cy = v.y + v.h / 2;
+    const w = Math.min(Math.max(v.w * factor, 0.6), 400);
+    const k = w / v.w;
+    this._plan.view = { x: cx - (v.w * k) / 2, y: cy - (v.h * k) / 2, w: v.w * k, h: v.h * k };
+    this._render();
+  }
+
+  _planSvg(zone, frame, outline, items, beds, bad) {
+    const NS = "http://www.w3.org/2000/svg";
+    const s = (tag, attrs = {}, ...children) => {
+      const el = document.createElementNS(NS, tag);
+      for (const [k, v] of Object.entries(attrs)) if (v !== null && v !== undefined) el.setAttribute(k, v);
+      el.append(...children.flat().filter(Boolean));
+      return el;
+    };
+    const plan = this._plan;
+    const v = plan.view;
+    const unit = v.w / 60; // about one "pixel" of the drawing, for text and dots
+    const step = this._planStep();
+    const grid = [];
+    const lines = (from, to, every) => {
+      const out = [];
+      for (let t = Math.ceil(from / every) * every; t <= to; t += every) out.push(t);
+      return out;
+    };
+    let minor = "";
+    let major = "";
+    // The drawing keeps its proportions in a box of another shape: the grid covers well beyond the view.
+    const g = { x: v.x - v.w * 2, y: v.y - v.h * 2, w: v.w * 5, h: v.h * 5 };
+    for (const x of lines(g.x, g.x + g.w, step)) (Math.abs(x - Math.round(x)) < 1e-6 && step < 1 ? (major += `M${x} ${g.y}V${g.y + g.h}`) : (minor += `M${x} ${g.y}V${g.y + g.h}`));
+    for (const y of lines(g.y, g.y + g.h, step)) (Math.abs(y - Math.round(y)) < 1e-6 && step < 1 ? (major += `M${g.x} ${y}H${g.x + g.w}`) : (minor += `M${g.x} ${y}H${g.x + g.w}`));
+    grid.push(s("path", { d: minor, class: "plan-grid" }), s("path", { d: major, class: "plan-grid major" }));
+    const pts = (list) => list.map((p) => p.join(",")).join(" ");
+    const sides = outline.map((p, i) => {
+      const q = outline[(i + 1) % outline.length];
+      const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      return s("text", { x: (p[0] + q[0]) / 2, y: (p[1] + q[1]) / 2, class: "plan-side", "font-size": unit * 2.2, "text-anchor": "middle" }, this._metres(len));
+    });
+    const bedEls = beds.map((b) => {
+      const ring = b.geometry.coordinates[0].slice(0, -1).map(([lon, lat]) => frame.xy(lon, lat));
+      const cx = ring.reduce((a, p) => a + p[0], 0) / ring.length;
+      const top = Math.min(...ring.map((p) => p[1]));
+      return s("g", {}, s("polygon", { points: pts(ring), class: "plan-bed" }), s("text", { x: cx, y: top + unit * 2.6, class: "plan-label", "font-size": unit * 2, "text-anchor": "middle" }, b.name));
+    });
+    const badEls = bad.map(({ a, b, d }) =>
+      s("g", {}, s("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: "plan-bad" }), s("text", { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - unit, class: "plan-bad-text", "font-size": unit * 2, "text-anchor": "middle" }, `${Math.round(d * 100)} cm`)),
+    );
+    const plantEls = items.map((it) => {
+      const selected = plan.selected === it.p.id;
+      const icon = PLANT_ICONS[it.p.plant_type] || "🌱";
+      return s(
+        "g",
+        { "data-id": it.p.id, class: `plan-plant${selected ? " selected" : ""}`, transform: `translate(${it.x} ${it.y})` },
+        it.end ? s("line", { x1: 0, y1: 0, x2: it.end[0] - it.x, y2: it.end[1] - it.y, class: "plan-row" }) : null,
+        it.r ? s("circle", { r: it.r, class: "plan-reach" }) : null,
+        s("circle", { r: unit * 1.6, class: "plan-dot" }),
+        s("text", { y: unit * 0.8, "font-size": unit * 2.2, "text-anchor": "middle" }, icon),
+        it.p.kind === "group" && it.p.quantity > 1 ? s("text", { x: unit * 2, y: -unit * 1.4, "font-size": unit * 1.8, class: "plan-label" }, `×${it.p.quantity}`) : null,
+      );
+    });
+    const preview = s("g", { class: "plan-preview" });
+    const svg = s(
+      "svg",
+      { viewBox: `${v.x} ${v.y} ${v.w} ${v.h}`, class: `plan${plan.mode ? " placing" : ""}`, role: "img", "aria-label": this.t("planAria", { name: zone.name }) },
+      grid,
+      s("polygon", { points: pts(outline), class: "plan-zone" }),
+      bedEls,
+      sides,
+      badEls,
+      plantEls,
+      preview,
+    );
+    this._planPointer(svg, frame, items, preview, unit);
+    return svg;
+  }
+
+  /** Drag the background to pan, a plant to move it (snapped to the grid); tap to place or to pick. */
+  _planPointer(svg, frame, items, preview, unit) {
+    const plan = this._plan;
+    const toLocal = (ev) => {
+      const pt = svg.createSVGPoint();
+      pt.x = ev.clientX;
+      pt.y = ev.clientY;
+      const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+      return [p.x, p.y];
+    };
+    const snap = (value) => {
+      const step = this._planStep() < 1 ? 0.1 : 0.5;
+      return Math.round(value / step) * step;
+    };
+    let drag = null;
+    svg.addEventListener("pointerdown", (ev) => {
+      const target = ev.target.closest?.("[data-id]");
+      const [x, y] = toLocal(ev);
+      drag = { id: target?.dataset.id || null, el: target, x0: x, y0: y, cx: ev.clientX, cy: ev.clientY, moved: false, view: { ...plan.view } };
+      svg.setPointerCapture(ev.pointerId);
+    });
+    svg.addEventListener("pointermove", (ev) => {
+      if (!drag) return;
+      if (Math.hypot(ev.clientX - drag.cx, ev.clientY - drag.cy) > 4) drag.moved = true;
+      if (!drag.moved) return;
+      if (drag.id && !plan.mode) {
+        const [x, y] = toLocal(ev);
+        const it = items.find((i) => i.p.id === drag.id);
+        drag.to = [snap(it.x + x - drag.x0), snap(it.y + y - drag.y0)];
+        drag.el.setAttribute("transform", `translate(${drag.to[0]} ${drag.to[1]})`);
+        this._planNearest(preview, drag.to, it, items, unit);
+      } else {
+        const rect = svg.getBoundingClientRect();
+        const k = drag.view.w / rect.width;
+        plan.view = { ...drag.view, x: drag.view.x - (ev.clientX - drag.cx) * k, y: drag.view.y - (ev.clientY - drag.cy) * k };
+        svg.setAttribute("viewBox", `${plan.view.x} ${plan.view.y} ${plan.view.w} ${plan.view.h}`);
+      }
+    });
+    const end = async (ev) => {
+      const d = drag;
+      drag = null;
+      if (!d) return;
+      if (d.moved && d.id && d.to && !plan.mode) {
+        const [lon, lat] = frame.lonlat(d.to[0], d.to[1]);
+        const it = items.find((i) => i.p.id === d.id);
+        const data = { id: d.id, latitude: lat, longitude: lon };
+        if (it.end) {
+          const [elon, elat] = frame.lonlat(it.end[0] + d.to[0] - it.x, it.end[1] + d.to[1] - it.y);
+          data.row_to = [elon, elat];
+        }
+        plan.selected = d.id;
+        await this._call("update_planting", data);
+        return;
+      }
+      if (d.moved) {
+        this._render();
+        return;
+      }
+      if (plan.mode) await this._planTap(frame, [snap(d.x0), snap(d.y0)]);
+      else {
+        plan.selected = d.id;
+        this._render();
+      }
+    };
+    svg.addEventListener("pointerup", end);
+    svg.addEventListener("pointercancel", () => (drag = null));
+    svg.addEventListener(
+      "wheel",
+      (ev) => {
+        ev.preventDefault();
+        this._planZoom(ev.deltaY > 0 ? 1.2 : 1 / 1.2);
+      },
+      { passive: false },
+    );
+  }
+
+  /** While dragging: a line to the nearest plant, red when closer than both want. */
+  _planNearest(preview, [x, y], it, items, unit) {
+    const NS = "http://www.w3.org/2000/svg";
+    preview.replaceChildren();
+    const others = items.filter((o) => o !== it).map((o) => ({ o, d: Math.hypot(o.x - x, o.y - y) }));
+    if (!others.length) return;
+    const { o, d } = others.sort((a, b) => a.d - b.d)[0];
+    const need = it.r && o.r ? it.r + o.r : 0;
+    const line = document.createElementNS(NS, "line");
+    Object.entries({ x1: x, y1: y, x2: o.x, y2: o.y, class: need && d < need ? "plan-bad" : "plan-measure" }).forEach(([k, v]) => line.setAttribute(k, v));
+    const text = document.createElementNS(NS, "text");
+    Object.entries({ x: (x + o.x) / 2, y: (y + o.y) / 2 - unit, "font-size": unit * 2.2, "text-anchor": "middle", class: need && d < need ? "plan-bad-text" : "plan-label" }).forEach(([k, v]) => text.setAttribute(k, v));
+    text.textContent = `${Math.round(d * 100)} cm`;
+    preview.append(line, text);
+  }
+
+  /** The zone (or a zone inside it) under a point of the plan: the deepest one. */
+  _planZoneAt(frame, x, y) {
+    const [lon, lat] = frame.lonlat(x, y);
+    return this._zoneAt(lat, lon) || this._plan.zoneId;
+  }
+
+  async _planTap(frame, [x, y]) {
+    const plan = this._plan;
+    const [lon, lat] = frame.lonlat(x, y);
+    const zoneId = this._planZoneAt(frame, x, y);
+    const spacing = (plan.spacing || 30) / 100;
+    if (plan.kind === "one") {
+      if (plan.pick) {
+        plan.selected = plan.pick;
+        plan.mode = null;
+        await this._call("update_planting", { id: plan.pick, latitude: lat, longitude: lon });
+        return;
+      }
+      this._newPlantingAt({ lat, lng: lon }, zoneId);
+      return;
+    }
+    if (plan.kind === "row") {
+      if (!plan.rowStart) {
+        plan.rowStart = [x, y];
+        this._render();
+        return;
+      }
+      const [x0, y0] = plan.rowStart;
+      plan.rowStart = null;
+      const length = Math.hypot(x - x0, y - y0);
+      const [lon0, lat0] = frame.lonlat(x0, y0);
+      const quantity = Math.max(1, Math.floor(length / spacing) + 1);
+      this._newPlantingAt({ lat: lat0, lng: lon0 }, this._planZoneAt(frame, x0, y0), { kind: "group", quantity, row_to: [lon, lat] });
+      return;
+    }
+    // Fill: as many as fit in the bed, staggered rows (quincunx).
+    const bed = this._zone(zoneId);
+    const ring = bed.geometry.coordinates[0].slice(0, -1).map(([lo, la]) => frame.xy(lo, la));
+    const count = quincunxCount(ring, spacing);
+    const cx = ring.reduce((a, p) => a + p[0], 0) / ring.length;
+    const cy = ring.reduce((a, p) => a + p[1], 0) / ring.length;
+    const [clon, clat] = frame.lonlat(cx, cy);
+    this._newPlantingAt({ lat: clat, lng: clon }, zoneId, { kind: "group", quantity: Math.max(count, 1) });
+    this._showMessage(this.t("planFits", { count, spacing: `${Math.round(spacing * 100)} cm`, name: bed.name }));
+  }
+
+  _planBar(zone, frame, outline, items, beds, bad) {
+    const plan = this._plan;
+    const set = (patch) => {
+      Object.assign(plan, patch);
+      this._render();
+    };
+    if (plan.mode === "plant") {
+      const inside = new Set([zone.id, ...this._zoneDescendants(zone.id)]);
+      const unplaced = this._data.plantings.filter((p) => p.status === "active" && inside.has(p.zone_id) && !hasPosition(p));
+      const kinds = [
+        ["one", this.t("planOne")],
+        ["row", this.t("planRow")],
+        ["fill", this.t("planFill")],
+      ];
+      const hint = plan.kind === "one" ? this.t("planTapOne") : plan.kind === "row" ? (plan.rowStart ? this.t("planTapRowEnd") : this.t("planTapRowStart")) : this.t("planTapFill");
+      return h(
+        "div",
+        { className: "plan-bar" },
+        h("div", { className: "seg" }, kinds.map(([k, label]) => h("button", { type: "button", className: plan.kind === k ? "on" : "", onclick: () => set({ kind: k, rowStart: null }) }, label))),
+        plan.kind === "one" && unplaced.length
+          ? h(
+              "label",
+              {},
+              this.t("planPick"),
+              h(
+                "select",
+                { onchange: (ev) => (plan.pick = ev.target.value) },
+                h("option", { value: "" }, this.t("planNew")),
+                unplaced.map((p) => h("option", { value: p.id, selected: plan.pick === p.id }, p.name)),
+              ),
+            )
+          : null,
+        plan.kind !== "one"
+          ? h("label", {}, this.t("planSpacing"), h("input", { type: "number", min: 5, max: 500, step: 5, value: plan.spacing || 30, inputMode: "numeric", onchange: (ev) => (plan.spacing = Number(ev.target.value) || 30) }), h("span", { className: "hint" }, "cm"))
+          : null,
+        h("p", { className: "hint" }, `👆 ${hint}`),
+        h("button", { type: "button", onclick: () => set({ mode: null, rowStart: null }) }, this.t("cancel")),
+      );
+    }
+    if (plan.mode === "sides") return this._planSides(zone, frame, outline);
+    if (plan.mode === "bed") return this._planBed(zone, frame, outline);
+    const sel = items.find((i) => i.p.id === plan.selected);
+    const info = sel ? this._planInfo(sel, items, bad) : null;
+    return h(
+      "div",
+      { className: "plan-bar" },
+      info,
+      h(
+        "div",
+        { className: "plan-tools" },
+        h("button", { type: "button", onclick: () => set({ mode: "sides", selected: null }) }, `📏 ${this.t("planSides")}`),
+        h("button", { type: "button", onclick: () => set({ mode: "bed", selected: null, bed: { name: "", w: "", l: "", a: "", b: "" } }) }, `▦ ${this.t("planBed")}`),
+        h("button", { type: "button", className: "primary", onclick: () => set({ mode: "plant", selected: null }) }, `🌱 ${this.t("planPlant")}`),
+      ),
+      bad.length
+        ? h("div", { className: "alert-line" }, `🤝 ${this.t("badNeighbours")}: ${bad.map(({ a, b, d }) => this.t("badPair", { a: a.p.name, b: b.p.name, dist: `${Math.round(d * 100)} cm` })).join(" · ")}`)
+        : items.length > 1
+          ? h("p", { className: "hint" }, this.t("noBadNeighbours"))
+          : null,
+      h("p", { className: "hint" }, this.t("planHint")),
+    );
+  }
+
+  _planInfo(sel, items, bad) {
+    const near = items
+      .filter((o) => o !== sel)
+      .map((o) => ({ o, d: Math.hypot(o.x - sel.x, o.y - sel.y) }))
+      .sort((a, b) => a.d - b.d)[0];
+    const need = near && sel.r && near.o.r ? sel.r + near.o.r : 0;
+    const mine = bad.filter(({ a, b }) => a === sel || b === sel);
+    return h(
+      "div",
+      { className: "plan-info" },
+      h("strong", {}, sel.p.name),
+      sel.r ? h("span", { className: "sub" }, this.t("planReach", { value: `${Math.round(sel.r * 200)} cm` })) : null,
+      near
+        ? h("span", { className: need && near.d < need ? "sub warn" : "sub" }, this.t(need && near.d < need ? "planTooClose" : "planNearest", { dist: `${Math.round(near.d * 100)} cm`, name: near.o.p.name, need: `${Math.round(need * 100)} cm` }))
+        : null,
+      mine.length ? h("span", { className: "sub warn" }, `🤝 ${mine.map(({ a, b }) => (a === sel ? b : a).p.name).join(", ")}`) : null,
+      h("div", { className: "row" }, h("button", { type: "button", onclick: () => this._select(sel.p.id) }, this.t("planOpenCard")), h("button", { type: "button", onclick: () => ((this._plan.selected = null), this._render()) }, "✕")),
+    );
+  }
+
+  /** The real lengths of the sides: the end point of a side moves along it. */
+  _planSides(zone, frame, outline) {
+    const pts = outline.map((p) => [...p]);
+    const inputs = pts.map((p, i) => {
+      const q = pts[(i + 1) % pts.length];
+      return h("input", { type: "text", inputMode: "decimal", value: String(this._fromMetres(Math.hypot(q[0] - p[0], q[1] - p[1]))).replace(".", this._decimalComma() ? "," : ".") });
+    });
+    const save = async () => {
+      inputs.forEach((input, i) => {
+        const want = this._toMetres(input.value);
+        const p = pts[i];
+        const j = (i + 1) % pts.length;
+        const q = pts[j];
+        const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+        if (!(want > 0) || !len || Math.abs(want - len) < 0.005 || (i === pts.length - 1 && j === 0)) return;
+        pts[j] = [p[0] + ((q[0] - p[0]) * want) / len, p[1] + ((q[1] - p[1]) * want) / len];
+      });
+      const ring = pts.map(([x, y]) => frame.lonlat(x, y));
+      ring.push(ring[0]);
+      this._plan.view = null;
+      this._plan.mode = null;
+      await this._call("update_zone", { id: zone.id, geometry: { type: "Polygon", coordinates: [ring] } });
+    };
+    return h(
+      "div",
+      { className: "plan-bar" },
+      h("strong", {}, `📏 ${this.t("planSides")}`),
+      h("p", { className: "hint" }, this.t("planSidesHint")),
+      h("div", { className: "plan-sides" }, inputs.map((input, i) => h("label", {}, this.t("planSide", { n: i + 1 }), input, h("span", { className: "hint" }, UNITS.imperial ? "ft" : "m")))),
+      h("div", { className: "row" }, h("button", { type: "button", className: "primary", onclick: save }, this.t("save")), h("button", { type: "button", onclick: () => ((this._plan.mode = null), this._render()) }, this.t("cancel"))),
+    );
+  }
+
+  /** A rectangular bed inside the zone, measured from its corner along its longest side. */
+  _planBed(zone, frame, outline) {
+    let best = 0;
+    let angle = 0;
+    outline.forEach((p, i) => {
+      const q = outline[(i + 1) % outline.length];
+      const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      if (len > best) {
+        best = len;
+        angle = Math.atan2(q[1] - p[1], q[0] - p[0]);
+      }
+    });
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const uv = outline.map(([x, y]) => [x * cos + y * sin, -x * sin + y * cos]);
+    const umin = Math.min(...uv.map((p) => p[0]));
+    const vmin = Math.min(...uv.map((p) => p[1]));
+    const back = ([u, v]) => [u * cos - v * sin, u * sin + v * cos];
+    const b = this._plan.bed;
+    const field = (key, label) => h("label", {}, label, h("input", { type: "text", inputMode: key === "name" ? "text" : "decimal", value: b[key], oninput: (ev) => ((b[key] = ev.target.value), preview()) }), key === "name" ? null : h("span", { className: "hint" }, UNITS.imperial ? "ft" : "m"));
+    const corners = () => {
+      const [w, l, da, db] = [b.w, b.l, b.a || "0", b.b || "0"].map((v) => this._toMetres(v));
+      if (!(w > 0) || !(l > 0) || !Number.isFinite(da) || !Number.isFinite(db)) return null;
+      const u0 = umin + da;
+      const v0 = vmin + db;
+      return [[u0, v0], [u0 + w, v0], [u0 + w, v0 + l], [u0, v0 + l]].map(back);
+    };
+    const preview = () => {
+      const g = this.shadowRoot.querySelector(".plan-preview");
+      if (!g) return;
+      g.replaceChildren();
+      const c = corners();
+      if (!c) return;
+      const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+      poly.setAttribute("points", c.map((p) => p.join(",")).join(" "));
+      poly.setAttribute("class", "plan-bed new");
+      g.append(poly);
+    };
+    setTimeout(preview, 0);
+    const save = async () => {
+      const c = corners();
+      if (!c || !b.name.trim()) {
+        this._showMessage(this.t("planBedMissing"), true);
+        return;
+      }
+      const ring = c.map(([x, y]) => frame.lonlat(x, y));
+      ring.push(ring[0]);
+      this._plan.mode = null;
+      await this._call("add_zone", { name: b.name.trim(), parent_id: zone.id, kind: zone.kind || null, geometry: { type: "Polygon", coordinates: [ring] } });
+    };
+    return h(
+      "div",
+      { className: "plan-bar" },
+      h("strong", {}, `▦ ${this.t("planBed")}`),
+      h("p", { className: "hint" }, this.t("planBedHint", { side: this._metres(best) })),
+      field("name", this.t("name")),
+      h("div", { className: "row" }, field("w", this.t("planBedW")), field("l", this.t("planBedL"))),
+      h("div", { className: "row" }, field("a", this.t("planBedA")), field("b", this.t("planBedB"))),
+      h("div", { className: "row" }, h("button", { type: "button", className: "primary", onclick: save }, this.t("save")), h("button", { type: "button", onclick: () => ((this._plan.mode = null), this._render()) }, this.t("cancel"))),
+    );
+  }
+
+  /** Fruit trees that need another variety nearby: a warning only when the variety is known. */
+  _pollination(planting) {
+    const key = this._cropKey(planting.species);
+    const rule = POLLINATION[key];
+    if (!rule || !hasPosition(planting) || planting.status !== "active") return null;
+    const variety = (planting.variety || "").toLowerCase();
+    const near = (p) => {
+      const dy = (p.latitude - planting.latitude) * 110540;
+      const dx = (p.longitude - planting.longitude) * 111320 * Math.cos((planting.latitude * Math.PI) / 180);
+      return Math.hypot(dx, dy);
+    };
+    const others = this._data.plantings
+      .filter((p) => p.id !== planting.id && p.status === "active" && hasPosition(p) && rule.partners.some((k) => this._cropKey(p.species).startsWith(k)))
+      .map((p) => ({ p, d: near(p) }))
+      .filter(({ d }) => d <= POLLINATION_RANGE_M)
+      .sort((a, b) => a.d - b.d);
+    if (rule.dioecious) {
+      if (!variety || MALE_WORDS.some((w) => variety.includes(w)) || rule.self.some((v) => variety.includes(v))) return null;
+      const male = others.find(({ p }) => MALE_WORDS.some((w) => (p.variety || "").toLowerCase().includes(w)));
+      return male ? this.t("pollOk", { name: male.p.name, dist: this._metres(male.d, 0) }) : `⚠️ ${this.t("pollMale")}`;
+    }
+    if (!variety) return null;
+    if (rule.self.some((v) => variety.includes(v))) return this.t("pollSelf");
+    const partner = others.find(({ p }) => (p.variety || "").toLowerCase() !== variety);
+    if (partner) return this.t("pollOk", { name: partner.p.name, dist: this._metres(partner.d, 0) });
+    return `⚠️ ${this.t("pollNeed", { range: this._metres(POLLINATION_RANGE_M, 0), self: rule.self.slice(0, 3).map(capitalize).join(", ") || "—" })}`;
+  }
+
   _renderZoneTap() {
     const { id, latlng } = this._zoneTap;
     const zone = this._zone(id);
@@ -3763,6 +4944,7 @@ class HomesteadPanel extends HTMLElement {
           { className: "row" },
           h("button", { type: "button", onclick: () => this._newEvent({ zone_id: id }, { zone_id: id }) }, `+ ${this.t("quickEvent")}`),
           h("button", { type: "button", onclick: () => this._selectZone(id) }, this.t("zoneCard")),
+          zone.geometry ? h("button", { type: "button", onclick: () => this._openPlan(id) }, `📐 ${this.t("planOpen")}`) : null,
           h("button", { type: "button", onclick: () => this._close() }, "✕"),
         ),
       ),
@@ -4187,6 +5369,8 @@ class HomesteadPanel extends HTMLElement {
     );
     extras.end = h("div", { className: "row" }, h("label", {}, this.t("endReason"), endSelect), causeField);
     causeField.hidden = endSelect.value !== "died";
+    extras.pest = this._selectField(f, "severity", [["", "—"], ...["few", "spread", "heavy"].map((v) => [v, this.t(`sev_${v}`)])]);
+    extras.worked = this._selectField(f, "worked", [["", "—"], ...["yes", "partly", "no"].map((v) => [v, this.t(`wk_${v}`)])]);
     extras.review = h(
       "div",
       { className: "review" },
@@ -4225,13 +5409,15 @@ class HomesteadPanel extends HTMLElement {
       extras.stars.hidden = !["review", "compost_harvest"].includes(kind);
       extras.reason.hidden = kind !== "flock_out";
       extras.end.hidden = kind !== "removal";
+      extras.pest.hidden = kind !== "problem";
+      extras.worked.hidden = kind !== "treatment";
       quantityLabel.firstChild.textContent = this.t(QUANTITY_LABEL[kind] || "quantity_h");
       unitLabel.hidden = (QUANTITY_UNITS[kind] || []).length < 2;
       extras.product.hidden = !PRODUCT_LABEL[kind];
       productLabel.firstChild.textContent = this.t(PRODUCT_LABEL[kind] || "product");
       doseLabel.hidden = !["fertilizing", "treatment"].includes(kind);
       shopButton.hidden = doseLabel.hidden;
-      productInput.setAttribute("list", kind === "wood_cutting" ? "homestead-essences" : "");
+      productInput.setAttribute("list", kind === "wood_cutting" ? "homestead-essences" : kind === "problem" ? "homestead-pests" : "");
       extras.harvest.hidden = !QUANTITY_UNITS[kind];
       if (QUANTITY_UNITS[kind]) {
         const units = UNITS.imperial && IMPERIAL_UNITS[kind] ? IMPERIAL_UNITS[kind] : QUANTITY_UNITS[kind];
@@ -4298,6 +5484,7 @@ class HomesteadPanel extends HTMLElement {
       doseLabel,
       shopButton,
       h("datalist", { id: "homestead-essences" }, essences.map((name) => h("option", { value: name }))),
+      h("datalist", { id: "homestead-pests" }, [...new Set(this._data.events.filter((e) => e.kind === "problem" && e.product).map((e) => e.product.trim()))].map((name) => h("option", { value: name }))),
     );
     const unitSelect = h("select", { name: "unit" });
     const unitLabel = h("label", {}, this.t("unit"), unitSelect);
@@ -4336,6 +5523,8 @@ class HomesteadPanel extends HTMLElement {
       lastEl,
       extras.product,
       extras.harvest,
+      extras.pest,
+      extras.worked,
       extras.reason,
       extras.end,
       extras.stars,
@@ -4391,6 +5580,8 @@ class HomesteadPanel extends HTMLElement {
       keep: v.kind === "review" ? v.keep?.trim() || null : null,
       avoid: v.kind === "review" ? v.avoid?.trim() || null : null,
       unit: QUANTITY_UNITS[v.kind] ? v.unit || QUANTITY_UNITS[v.kind][0] : null,
+      severity: v.kind === "problem" ? v.severity || null : null,
+      worked: v.kind === "treatment" ? v.worked || null : null,
       notes: v.notes?.trim() || null,
     };
     if (!PRODUCT_LABEL[v.kind]) data.product = null;
@@ -4993,6 +6184,12 @@ class HomesteadPanel extends HTMLElement {
         h("div", { className: "row" }, this._field(f, "due_on", { type: "date", required: true })),
         this._field(f, "title", { maxLength: 100 }),
         h("label", { className: "check" }, h("input", { type: "checkbox", name: "yearly", checked: !!f.yearly }), this.t("yearly")),
+        h(
+          "div",
+          { className: "row" },
+          h("label", {}, `🔁 ${this.t("repeatWeeks")}`, h("input", { name: "repeat_weeks", type: "number", min: 1, max: 26, step: 1, value: f.repeat_weeks ?? "", inputMode: "numeric" })),
+          this._field(f, "repeat_until", { type: "date" }),
+        ),
         this._notes(f),
         this._formButtons(f.id, () => this._deleteTask(), () => this._taskDone()),
       ),
@@ -5018,8 +6215,11 @@ class HomesteadPanel extends HTMLElement {
       zone_id: type === "z" ? targetId : null,
       title: v.title?.trim() || null,
       yearly: v.yearly === "on",
+      repeat_weeks: v.repeat_weeks ? Number(v.repeat_weeks) : null,
+      repeat_until: v.repeat_weeks && v.repeat_until ? v.repeat_until : null,
       notes: v.notes?.trim() || null,
     };
+    if (!this._taskForm.id && this._taskForm.seed_ids?.length) data.seed_ids = this._taskForm.seed_ids;
     if (data.planting_id) delete data.zone_id;
     else if (data.zone_id) delete data.planting_id;
     else delete data.zone_id;
@@ -5150,6 +6350,9 @@ class HomesteadPanel extends HTMLElement {
         },
         this.t("quickHarvest"),
       ),
+      ["vegetable", "herb", "flower"].includes(f.plant_type) || f.origin === "sown"
+        ? h("button", { type: "button", onclick: () => this._collectSeeds(f) }, `🌰 ${this.t("collectSeeds")}`)
+        : null,
       h(
         "button",
         {
@@ -5408,7 +6611,7 @@ class HomesteadPanel extends HTMLElement {
                   h(
                     "div",
                     { className: "sub" },
-                    [lot.year, lot.supplier, lot.quantity, lot.finished ? this.t("finished") : null].filter(Boolean).join(" · "),
+                    [lot.year, lot.from_planting_id ? `🌰 ${this._planting(lot.from_planting_id)?.name || this.t("ownSeedsSupplier")}` : lot.supplier, lot.quantity, lot.finished ? this.t("finished") : null].filter(Boolean).join(" · "),
                   ),
                   warning ? h("div", { className: "sub warn" }, warning) : null,
                   !lot.finished && this._inMonth(this._crop(lot.species), ["sow_indoor", "sow_outdoor"])
@@ -5471,6 +6674,7 @@ class HomesteadPanel extends HTMLElement {
             "div",
             { className: "actions" },
             h("button", { type: "button", onclick: () => this._addToShopping(this.t("seedsItem", { name: this._seedName(f) })) }, this.t("shop")),
+            h("button", { type: "button", onclick: () => this._openSuccession(f) }, `🔁 ${this.t("succession")}`),
           )
         : null,
     ];
@@ -5494,6 +6698,7 @@ class HomesteadPanel extends HTMLElement {
       finished: v.finished === "on",
       notes: v.notes?.trim() || null,
     };
+    if (this._seedForm.from_planting_id) data.from_planting_id = this._seedForm.from_planting_id;
     const id = this._seedForm.id;
     if (!id && v.price) data.price = Number(v.price);
     if (await this._call(id ? "update_seed_lot" : "add_seed_lot", id ? { id, ...data } : data)) this._saved(this._seedName(data));
@@ -7815,6 +9020,7 @@ class HomesteadPanel extends HTMLElement {
     const first = ["compost", "coop"].includes(z.kind);
     return [
       z.id && this._zoneHasSoil(z.id) ? this._soilLine(z.id) : null,
+      z.id && !["compost", "coop", "indoor", "woodland"].includes(z.kind) ? this._waterBox(z) : null,
       first ? box : null,
       h(
         "form",
@@ -7828,6 +9034,7 @@ class HomesteadPanel extends HTMLElement {
           this._selectField(z, "parent_id", this._zoneOptions(exclude)),
         ),
         essences,
+        ["compost", "coop", "indoor"].includes(z.kind) ? null : this._waterSelect(z, this.t(z.parent_id ? "wmInherit" : "wmUnset")),
         ["compost", "coop"].includes(z.kind) ? null : this._zoneSoilFields(z),
         this._notes(z),
         area ? h("div", { className: "hint" }, `${this.t("surface")}: ${area}`) : null,
@@ -7842,11 +9049,13 @@ class HomesteadPanel extends HTMLElement {
               "div",
               { className: "row" },
               h("button", { type: "button", onclick: () => this._startDrawing(z) }, this.t(z.geometry ? "redraw" : "draw")),
+              z.geometry ? h("button", { type: "button", className: "primary", onclick: () => this._openPlan(z.id) }, `📐 ${this.t("planOpen")}`) : null,
               h("button", { type: "button", className: "danger", onclick: () => this._deleteZone() }, this.t("delete")),
             )
           : null,
       ),
       first ? null : box,
+      z.id && ["vegetable_garden", "greenhouse"].includes(z.kind) && !z.parent_id ? this._nextYearBox(z) : null,
       z.id && !["woodland", "compost", "coop"].includes(z.kind) ? this._rotationBox(z) : null,
       z.id ? this._photoHistoryBox(z.id) : null,
       z.id ? this._diaryBox({ zone_id: z.id }) : null,
@@ -8083,6 +9292,44 @@ function rad(deg) {
   return (deg * Math.PI) / 180;
 }
 
+/** Metres between two plants of the plan; a row counts from its nearest point. */
+function itemDistance(a, b) {
+  const toSegment = ([px, py], s) => {
+    if (!s.end) return Math.hypot(px - s.x, py - s.y);
+    const [dx, dy] = [s.end[0] - s.x, s.end[1] - s.y];
+    const t = Math.max(0, Math.min(1, ((px - s.x) * dx + (py - s.y) * dy) / (dx * dx + dy * dy || 1)));
+    return Math.hypot(px - (s.x + t * dx), py - (s.y + t * dy));
+  };
+  if (!a.end && !b.end) return Math.hypot(a.x - b.x, a.y - b.y);
+  const points = (s) => (s.end ? [[s.x, s.y], s.end] : [[s.x, s.y]]);
+  return Math.min(...points(a).map((p) => toSegment(p, b)), ...points(b).map((p) => toSegment(p, a)));
+}
+
+/** How many plants fit in a polygon (metres) at a spacing, in staggered rows. */
+function quincunxCount(ring, spacing) {
+  const xs = ring.map((p) => p[0]);
+  const ys = ring.map((p) => p[1]);
+  const dy = (spacing * Math.sqrt(3)) / 2;
+  let count = 0;
+  let row = 0;
+  for (let y = Math.min(...ys) + spacing / 2; y <= Math.max(...ys) - spacing / 2 + 1e-9; y += dy, row++) {
+    for (let x = Math.min(...xs) + spacing / 2 + (row % 2 ? spacing / 2 : 0); x <= Math.max(...xs) - spacing / 2 + 1e-9; x += spacing) {
+      if (pointInRing([x, y], ring)) count++;
+    }
+  }
+  return count;
+}
+
+function pointInRing([x, y], ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
 function formatArea(m2) {
   if (m2 == null) return "";
   if (UNITS.imperial) {
@@ -8102,11 +9349,31 @@ function toCelsius(value) {
   return UNITS.imperial ? Math.round(((value - 32) * 5) / 9 * 2) / 2 : value;
 }
 
+/** Degree days from 1 January to a day, from the yearly series of the climate history. */
+function gddOn(series, iso) {
+  const values = series?.[iso.slice(0, 4)];
+  if (!values) return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  const doy = Math.round((Date.UTC(y, m - 1, d) - Date.UTC(y, 0, 0)) / 86400000);
+  return values.length >= doy ? values[doy - 1] : null;
+}
+
+/** Hours of daylight at a latitude on a day (sunrise to sunset, with refraction). */
+function dayLength(lat, iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const doy = Math.round((Date.UTC(y, m - 1, d) - Date.UTC(y, 0, 0)) / 86400000);
+  const rad = Math.PI / 180;
+  const decl = 23.44 * Math.sin(((2 * Math.PI) / 365) * (doy - 81));
+  const cosH = (Math.sin(-0.833 * rad) - Math.sin(lat * rad) * Math.sin(decl * rad)) / (Math.cos(lat * rad) * Math.cos(decl * rad));
+  return (2 * Math.acos(Math.max(-1, Math.min(1, cosH)))) / rad / 15;
+}
+
 function rainText(mm) {
   if (mm == null) return "";
-  if (!UNITS.imperial) return `${Math.round(mm * 10) / 10} mm`;
+  const text = (value) => (UNITS.comma ? String(value).replace(".", ",") : String(value));
+  if (!UNITS.imperial) return `${text(Math.round(mm * 10) / 10)} mm`;
   const inches = mm / 25.4;
-  return `${inches < 1 ? inches.toFixed(2) : inches.toFixed(1)} in`;
+  return `${text(inches < 1 ? inches.toFixed(2) : inches.toFixed(1))} in`;
 }
 
 function lengthText(cm) {
