@@ -8,13 +8,17 @@
 
 Integrazione per Home Assistant per gestire orto, frutteto e giardino: piante, alberi da frutto, aiuole, spese, attrezzi e, nelle prossime versioni, raccolto e consigli basati sul meteo.
 
-> Stato: **v0.15** (vedi *Cosa fa oggi*). Specifiche complete in [SPEC.md](SPEC.md).
+> Stato: **v0.19** (vedi *Cosa fa oggi*). Specifiche complete in [SPEC.md](SPEC.md).
+
+## Chiedi alla tua IA
+
+ChatGPT, Claude, Gemini o Perplexity possono aiutarti a installare e configurare HA Homestead: indica loro **[docs/ai-assistant.md](docs/ai-assistant.md)** (in inglese: cosa fa, passi di configurazione e formato CSV se hai già una lista di piante o semi da importare).
 
 ## Principio guida
 
-**Non sporcare Home Assistant**: nessuna area creata, poche entità aggregate, rimozione pulita (disinstallando l'integrazione i dati vengono cancellati).
+**Non sporcare Home Assistant**: nessuna area creata, poche entità aggregate, rimozione pulita (disinstallando, i dati vengono cancellati da HA; le foto restano nella cartella media con un ultimo backup).
 
-## Cosa fa oggi (v0.13)
+## Cosa fa oggi
 
 | Funzione | Come |
 |---|---|
@@ -116,7 +120,7 @@ Mappe: satellite **Esri World Imagery** (gratuito, senza account né pubblicità
 
 Ogni giorno, all'ora scelta, arriva una notifica per ogni attività prevista oggi (più un riepilogo delle attività in ritardo). **Toccandola** si apre il pannello sul form del diario già compilato; il pulsante **✔ Fatto** la registra subito nel diario.
 
-Entità create: `sensor.ha_homestead_plantings`, `sensor.ha_homestead_expenses_this_year`, `sensor.ha_homestead_tools_needing_service`, `todo.ha_homestead_garden_tasks`, `calendar.ha_homestead_garden` (tutte sotto un solo dispositivo "HA Homestead").
+Entità create: `sensor.ha_homestead_plantings`, `sensor.ha_homestead_expenses_this_year`, `sensor.ha_homestead_tools_needing_service`, `sensor.ha_homestead_weather_alerts`, `todo.ha_homestead_garden_tasks`, `calendar.ha_homestead_garden` (tutte sotto un solo dispositivo "HA Homestead").
 
 ## Fonti dei dati
 
@@ -129,21 +133,33 @@ Entità create: `sensor.ha_homestead_plantings`, `sensor.ha_homestead_expenses_t
 
 ## Installazione
 
-### HACS (consigliata)
+HA Homestead è nella lista ufficiale di HACS: non serve aggiungere un repository personalizzato.
 
 [![Apri questo repository in HACS nella tua istanza di Home Assistant.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=arozoire&repository=ha-homestead&category=integration)
 
 1. In HACS cerca **HA Homestead** (o usa il pulsante qui sopra) e scaricalo.
 2. Riavvia Home Assistant.
-3. *Impostazioni → Dispositivi e servizi → Aggiungi integrazione → HA Homestead*.
+3. *Impostazioni → Dispositivi e servizi → Aggiungi integrazione → HA Homestead*. Nella barra laterale compare **Giardino**.
 
-### Repository personalizzato (alternativa)
+## Domande frequenti
 
-Se HA Homestead non compare nella ricerca (per esempio con una versione vecchia di HACS):
+**Come gestisco l'orto in Home Assistant?**
+Installa HA Homestead da HACS: il pannello *Giardino* mette piante e aiuole su una mappa satellitare, con diario, attività e promemoria sul telefono, senza helper né automazioni. Un'IA può guidarti nella configurazione ([guida](docs/ai-assistant.md)).
 
-1. HACS → menu ⋮ → *Repository personalizzati* → `https://github.com/arozoire/ha-homestead`, categoria *Integrazione*.
-2. Scarica **HA Homestead** e riavvia Home Assistant.
-3. *Impostazioni → Dispositivi e servizi → Aggiungi integrazione → HA Homestead*.
+**Posso tenere un diario di potature e trattamenti con meteo e fase lunare?**
+Sì: ogni evento salva la fase lunare e il meteo dei giorni attorno (i tuoi sensori, altrimenti Open-Meteo); le attività pianificate (trattamenti, potature, semine) hanno il controllo meteo e il giorno migliore vicino.
+
+**E il frutteto?**
+Zona disegnata, alberi sulla mappa: scheda colturale (potatura, fioritura, raccolta), allerte gelo per rusticità, ore di freddo, impollinatori, annaffiature dei primi due anni.
+
+**Spese e raccolti dell'orto?**
+Sì: spese e vendite, raccolti con quantità, bilancio per anno e analisi pluriennali per coltura e zona.
+
+**Semi e semine?**
+Lotti con avviso età, *da seminare ora* sulle tue date di gelo, semine scalari, rotazione per aiuola.
+
+**Dove sono i dati e come faccio il backup?**
+In Home Assistant (`.storage/homestead.data`, nei backup di HA), foto nella cartella media. *Altro → 💾 Esporta JSON* o *🗜️ Esporta con le foto (.zip)*; *📂 Ripristina* accetta entrambi. Nessun account cloud.
 
 ## Sviluppo
 
