@@ -20,7 +20,16 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.translation import async_get_translations
 from homeassistant.util import dt as dt_util
 
-from .climate import CHILL_NEEDS, chill_hours, chill_start, gdd_by_year, gdd_today, parse_hourly, soil_days
+from .climate import (
+    CHILL_NEEDS,
+    chill_hours,
+    chill_start,
+    gdd_by_year,
+    gdd_today,
+    parse_hourly,
+    soil_days,
+    weekly_normals,
+)
 from .const import (
     CONF_ALERT_NOTIFY,
     CONF_HEAT_DAYS,
@@ -37,7 +46,7 @@ from .const import (
     SIGNAL_DATA_UPDATED,
     SIGNAL_OUTLOOK_UPDATED,
 )
-from .crops import crop_traits, full_table, load_cropgraph, load_defaults
+from .crops import crop_hint, crop_traits, full_table, load_crops
 from .models import entity_list, is_indoor, mean_reading, zone_soil_sensors
 from .notify import async_send
 from .outlook import (
@@ -76,15 +85,17 @@ WATER_DAILY = "precipitation_sum,et0_fao_evapotranspiration,temperature_2m_max,t
 
 
 async def async_crop_defaults(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
-    """Built-in table completed by CropGraph, its months set on the garden's frost dates."""
+    """The built-in crops worked out for this garden: weeks from its weekly normals, else its frost dates."""
     cache = hass.data.setdefault(CROP_DEFAULTS, {})
     if "sources" not in cache:
-        cache["sources"] = await hass.async_add_executor_job(lambda: (load_defaults(), load_cropgraph()))
+        cache["sources"] = await hass.async_add_executor_job(load_crops)
     outlook = get_outlook(hass)
-    frost = (outlook.climate.get("frost") if outlook else None) or None
-    key = repr(frost)
+    climate = outlook.climate if outlook else {}
+    frost = climate.get("frost") or None
+    weeks = climate.get("weeks") or None
+    key = repr((frost, climate.get("computed_on") if weeks else None))
     if cache.get("key") != key:
-        cache["table"] = full_table(*cache["sources"], frost)
+        cache["table"] = full_table(cache["sources"], weeks, frost)
         cache["key"] = key
     return cache["table"]
 
@@ -304,6 +315,7 @@ async def async_history(
         "frost": frost_dates(days),
         "extremes": extremes(days, thresholds),
         "gdd": gdd_by_year(days),
+        "weeks": weekly_normals(days),
         "sources": sources,
         "first_day": days[0]["date"] if days else None,
     }
@@ -341,6 +353,8 @@ class Outlook:
 
     def _stale(self) -> bool:
         computed = self.climate.get("computed_on")
+        if "weeks" not in self.climate:  # saved before the weekly normals existed
+            return True
         return not computed or date.fromisoformat(computed) + HISTORY_MAX_AGE <= dt_util.now().date()
 
     async def async_plant_risks(self) -> list[PlantRisk]:
@@ -350,7 +364,12 @@ class Outlook:
         for planting in self.store.data.active_plantings():
             if is_indoor(self.store.data, planting):
                 continue  # houseplants: no frost, no heatwave
-            traits = crop_traits(planting.species, table, list(self.store.data.crops.values())) or {}
+            traits = (
+                crop_traits(
+                    planting.species, table, list(self.store.data.crops.values()), crop_hint(planting)
+                )
+                or {}
+            )
             started = max(filter(None, [planting.sown_on, planting.planted_on]), default=None)
             young = bool(started) and date.fromisoformat(started) + timedelta(days=YOUNG_DAYS) > today
             risks.append(

@@ -124,3 +124,38 @@ def gdd_today(series: dict[str, list[int]], recent: list[dict[str, Any]], today:
             total += max(0.0, (t_min + t_max) / 2 - GDD_BASE)
         known = when.timetuple().tm_yday
     return round(total)
+
+
+def weekly_normals(days: list[dict[str, Any]], min_years: int = 3) -> list[dict[str, float]] | None:
+    """52 weeks of the typical year: mean max, mean min, and ``low`` = the coldest night of that week
+    in 9 years out of 10 (10th percentile of each year's weekly minimum). None with too little history.
+
+    Week 1 starts on 1 January; 31 December (and 30 December in leap years) count in week 52.
+    """
+    maxes: list[list[float]] = [[] for _ in range(52)]
+    mins: list[list[float]] = [[] for _ in range(52)]
+    lows: dict[tuple[int, int], float] = {}
+    for day in days:
+        t_min, t_max = _num(day.get("t_min")), _num(day.get("t_max"))
+        when = date.fromisoformat(day["date"])
+        week = min(51, (when.timetuple().tm_yday - 1) // 7)
+        if t_max is not None:
+            maxes[week].append(t_max)
+        if t_min is not None:
+            mins[week].append(t_min)
+            key = (when.year, week)
+            lows[key] = min(lows.get(key, t_min), t_min)
+    out = []
+    for week in range(52):
+        years = sorted(v for (_, w), v in lows.items() if w == week)
+        if len(years) < min_years or not maxes[week]:
+            return None
+        tenth = years[max(0, round(0.1 * (len(years) - 1)))]
+        out.append(
+            {
+                "t_max": round(sum(maxes[week]) / len(maxes[week]), 1),
+                "t_min": round(sum(mins[week]) / len(mins[week]), 1),
+                "low": round(tenth, 1),
+            }
+        )
+    return out
