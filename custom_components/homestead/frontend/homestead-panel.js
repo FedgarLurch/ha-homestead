@@ -3231,7 +3231,7 @@ class HomesteadPanel extends HTMLElement {
       .map((p) => {
         const key = `p:${p.id}`;
         const harvest = lastHarvest.get(key);
-        const crop = this._crop(p.species);
+        const crop = this._crop(p);
         return {
           key,
           planting: p,
@@ -3536,7 +3536,7 @@ class HomesteadPanel extends HTMLElement {
       if (history) lines.push(history);
       if (lot?.year) {
         const age = new Date().getFullYear() - lot.year + 1;
-        const life = lot.viability_years || SEED_VIABILITY[this._taxon(lot.taxon_id)?.family || this._crop(lot.species)?.family] || 3;
+        const life = lot.viability_years || SEED_VIABILITY[this._taxon(lot.taxon_id)?.family || this._crop(lot)?.family] || 3;
         lines.push(this.t("sowLotAge", { year: lot.year, age, life, old: age > life ? this.t("sowLotOld") : "" }));
       }
       expect.replaceChildren(h("strong", {}, this.t("sowExpect")), ...lines.map((line) => h("span", {}, line)));
@@ -3620,7 +3620,7 @@ class HomesteadPanel extends HTMLElement {
           scale = range ? this.t("germScaleSow", { min: range.min, max: range.max }) : "";
         } else {
           const days = daysBetween(p.germinated_on, now);
-          const out = this._crop(p.species)?.plant_out || [];
+          const out = this._crop(p)?.plant_out || [];
           const season = !out.length || out.includes(month) || out.includes((month % 12) + 1);
           const ready = days >= READY_DAYS && season;
           state = ready ? "ready" : "";
@@ -3813,7 +3813,7 @@ class HomesteadPanel extends HTMLElement {
   }
 
   _coldWarning(planting, day) {
-    const crop = this._crop(planting.species);
+    const crop = this._crop(planting);
     const tender = crop?.warm || (crop?.hardiness_c ?? -5) > 0;
     const limit = tender ? 10 : 2;
     const cold = (this._outlook?.forecast || []).find((d) => d.date >= day && daysBetween(day, d.date) <= 3 && d.t_min != null && d.t_min < limit);
@@ -3986,7 +3986,7 @@ class HomesteadPanel extends HTMLElement {
 
   /** Succession sowing from a seed lot: every 3 weeks until the last sowing month of the crop card. */
   _openSuccession(lot) {
-    const crop = this._crop(lot.species);
+    const crop = this._crop(lot);
     const months = [...(crop?.sow_outdoor || []), ...(crop?.sow_indoor || [])];
     const year = new Date().getFullYear();
     const last = months.length ? Math.max(...months) : 9;
@@ -4052,7 +4052,7 @@ class HomesteadPanel extends HTMLElement {
       return { bed, history, proposal };
     });
     const cell = (families) => h("span", { className: "rot-cell", style: families[0] ? `background:${FAMILY_COLOR[families[0]] || "#eceee8"}` : "" }, families.map((f) => FAMILY_ICON[f] || f.slice(0, 4)).join(" ") || "–");
-    const lots = (family) => this._data.seeds.filter((s) => !s.finished && this._crop(s.species)?.family === family);
+    const lots = (family) => this._data.seeds.filter((s) => !s.finished && this._crop(s)?.family === family);
     return h(
       "div",
       { className: "seasons" },
@@ -4624,7 +4624,7 @@ class HomesteadPanel extends HTMLElement {
     return this._data.plantings
       .filter((p) => p.status === "active" && hasPosition(p) && inside.has(p.zone_id))
       .flatMap((p) => {
-        const spacing = this._crop(p.species)?.spacing_cm;
+        const spacing = this._crop(p)?.spacing_cm;
         const r = spacing ? spacing / 200 : null;
         // A group placed plant by plant: one dot per plant, still one planting.
         if (p.kind === "group" && p.positions?.length) {
@@ -4651,7 +4651,7 @@ class HomesteadPanel extends HTMLElement {
         const ka = this._cropKey(a.p.species);
         const kb = this._cropKey(b.p.species);
         if (!ka || !kb || ka === kb) continue;
-        if (this._crop(a.p.species)?.bad?.includes(kb) || this._crop(b.p.species)?.bad?.includes(ka)) out.push({ a, b, d });
+        if (this._crop(a.p)?.bad?.includes(kb) || this._crop(b.p)?.bad?.includes(ka)) out.push({ a, b, d });
       }
     }
     return out;
@@ -6463,7 +6463,7 @@ class HomesteadPanel extends HTMLElement {
       return this._data.seeds
         .filter((lot) => !lot.finished)
         .map((lot) => {
-          const crop = this._crop(lot.species);
+          const crop = this._crop(lot);
           const where = ["sow_indoor", "sow_outdoor"].find((key) => (crop?.[key] || []).some((m) => months.has(m)));
           const cold = where === "sow_outdoor" ? this._soilColdShort(lot.species) : "";
           return where && { id: lot.id, name: `🌱 ${this._seedName(lot)}`, sub: [this.t(`work_${where}`), cold].filter(Boolean).join(" · "), planned: planned.get(lot.id) };
@@ -6472,7 +6472,7 @@ class HomesteadPanel extends HTMLElement {
     }
     return this._data.plantings
       .filter((p) => p.status === "active" && !this._inNursery(p) && !this._isIndoor(p))
-      .map((p) => ({ p, months: this._crop(p.species)?.[kind] || [] }))
+      .map((p) => ({ p, months: this._crop(p)?.[kind] || [] }))
       .filter(({ months: m }) => m.some((x) => months.has(x)))
       .sort((a, b) => a.p.name.localeCompare(b.p.name))
       .map(({ p, months: m }) => {
@@ -7146,7 +7146,7 @@ class HomesteadPanel extends HTMLElement {
                     [lot.year, lot.from_planting_id ? `🌰 ${this._planting(lot.from_planting_id)?.name || this.t("ownSeedsSupplier")}` : lot.supplier, lot.quantity, lot.finished ? this.t("finished") : null].filter(Boolean).join(" · "),
                   ),
                   warning ? h("div", { className: "sub warn" }, warning) : null,
-                  !lot.finished && this._inMonth(this._crop(lot.species), ["sow_indoor", "sow_outdoor"])
+                  !lot.finished && this._inMonth(this._crop(lot), ["sow_indoor", "sow_outdoor"])
                     ? h("div", { className: "sub info" }, this.t("sowNow"))
                     : null,
                   this._germHistoryText(lot.species) ? h("div", { className: "sub" }, this._germHistoryText(lot.species)) : null,
@@ -7268,7 +7268,7 @@ class HomesteadPanel extends HTMLElement {
     const icon = CROP_ICONS[key] || CROP_ICONS[key.split(" ")[0]];
     if (icon) return icon;
     if (!p.plant_type || p.plant_type === "vegetable") {
-      const family = this._taxon(p.taxon_id)?.family || this._crop(p.species)?.family;
+      const family = this._taxon(p.taxon_id)?.family || this._crop(p)?.family;
       if (FAMILY_ICON[family]) return FAMILY_ICON[family];
     }
     return PLANT_ICONS[p.plant_type] || fallback;
@@ -7280,15 +7280,38 @@ class HomesteadPanel extends HTMLElement {
   }
 
   _cropKey(name) {
-    return (name || "").toLowerCase().replace(/\s[x×]\s|×/g, " ").split(/\s+/).filter(Boolean).slice(0, 2).join(" ");
+    // Same as crops.normalize: "genus species", plus the group for "var. italica" / "Italica Group".
+    const words = (name || "").toLowerCase().replace(/\s[x×]\s|×/g, " ").replace(/'/g, "").split(/\s+/).filter(Boolean);
+    const ranks = new Set(["var.", "var", "subsp.", "subsp", "convar.", "convar", "group", "f."]);
+    const key = words.slice(0, 2);
+    const rest = words.slice(2).filter((w) => !ranks.has(w));
+    if (key.length === 2 && rest.length && (ranks.has(words[2]) || words[words.length - 1] === "group")) key.push(rest[0]);
+    return key.join(" ");
+  }
+
+  /** A crop group named on the planting or seed lot ("Broccoli 1", variety "Romaine"), else the species entry. */
+  _cropEntry(key, hint) {
+    if (key.split(" ").length === 3 && this._cropDefaults[key]) return this._cropDefaults[key];
+    const species = key.split(" ").slice(0, 2).join(" ");
+    const words = (hint || "").toLowerCase();
+    if (words) {
+      for (const [other, entry] of Object.entries(this._cropDefaults)) {
+        if (other.startsWith(species + " ") && (entry.group_names || []).some((n) => new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(words))) return entry;
+      }
+    }
+    return this._cropDefaults[species] || this._cropDefaults[species.split(" ")[0]];
   }
 
   /** The user's values win over the built-in table (exact species, then a genus entry). */
-  _crop(species) {
+  _crop(what) {
+    // A species name, or a planting / seed lot whose name or variety can pick a crop group.
+    const species = typeof what === "string" || !what ? what : what.species;
+    const hint = what && typeof what === "object" ? `${what.name || ""} ${what.variety || ""}` : "";
     const key = this._cropKey(species);
     if (!key) return null;
-    const mine = this._data.crops.find((c) => this._cropKey(c.species) === key);
-    const builtIn = this._cropDefaults[key] || this._cropDefaults[key.split(" ")[0]];
+    const short = key.split(" ").slice(0, 2).join(" ");
+    const mine = this._data.crops.find((c) => [key, short].includes(this._cropKey(c.species)));
+    const builtIn = this._cropEntry(key, hint);
     if (mine) {
       const { family, good, bad, name_en, warm } = builtIn || {};
       return { family, good, bad, name_en, warm, ...mine, source: "user" };
@@ -7335,7 +7358,7 @@ class HomesteadPanel extends HTMLElement {
   }
 
   _cropBox(planting) {
-    const crop = this._crop(planting.species);
+    const crop = this._crop(planting);
     const facts = crop
       ? [
           (crop.exposure || []).map((e) => this.t(`ex_${e}`)).join(" / ") || null,
@@ -7509,10 +7532,10 @@ class HomesteadPanel extends HTMLElement {
   _monthBox() {
     const names = (items) => [...new Set(items)].join(", ");
     const seeds = this._data.seeds.filter((lot) => !lot.finished);
-    const seedsFor = (key) => seeds.filter((lot) => this._inMonth(this._crop(lot.species), [key])).map((lot) => this._seedName(lot));
+    const seedsFor = (key) => seeds.filter((lot) => this._inMonth(this._crop(lot), [key])).map((lot) => this._seedName(lot));
     const active = this._data.plantings.filter((p) => p.status === "active");
-    const waiting = active.filter((p) => p.origin === "sown" && !p.planted_on && this._inMonth(this._crop(p.species), ["plant_out"]));
-    const harvest = active.filter((p) => this._inMonth(this._crop(p.species), ["harvest"])).map((p) => p.name);
+    const waiting = active.filter((p) => p.origin === "sown" && !p.planted_on && this._inMonth(this._crop(p), ["plant_out"]));
+    const harvest = active.filter((p) => this._inMonth(this._crop(p), ["harvest"])).map((p) => p.name);
     const lines = [
       ["monthSowIndoor", seedsFor("sow_indoor")],
       ["monthSowOutdoor", seedsFor("sow_outdoor")],
@@ -8250,7 +8273,7 @@ class HomesteadPanel extends HTMLElement {
         );
       }
       for (const p of plantings.sort((a, b) => a.name.localeCompare(b.name))) {
-        const crop = this._crop(p.species);
+        const crop = this._crop(p);
         const bands = CROP_MONTHS.filter((key) => crop?.[key]?.length).flatMap((key) => {
           legendKeys.add(key);
           return this._monthSegments(crop[key]).map(([from, to]) => ({ from, to, lane: key, color: CROP_COLOR[key], title: this.t(key) }));
@@ -8698,7 +8721,7 @@ class HomesteadPanel extends HTMLElement {
   }
 
   _family(p) {
-    return this._taxon(p.taxon_id)?.family || this._crop(p.species)?.family || null;
+    return this._taxon(p.taxon_id)?.family || this._crop(p)?.family || null;
   }
 
   /** Earlier crops of the same family (or species) in the zone during the last years, as a tip. */
