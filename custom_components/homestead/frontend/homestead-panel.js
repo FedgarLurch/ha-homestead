@@ -307,6 +307,10 @@ const STYLE = `
   .plan-wrap { position: relative; border: 1px solid var(--divider-color); border-radius: 12px; overflow: hidden; background: #fbfbf8; margin: 8px 0; }
   .plan-north { position: absolute; top: 8px; right: 8px; display: inline-flex; flex-direction: column; align-items: center; font-size: 12px; font-weight: 700; line-height: 1.1; color: #2e5a1e; pointer-events: none; width: 1.6em; text-align: center; }
   .plan-plant.faded { opacity: 0.2; }
+  .photo-order { align-items: center; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+  .photo-order button.on { border-color: var(--primary-color); font-weight: 600; }
+  .order-buttons { display: inline-flex; gap: 4px; }
+  .order-buttons button { min-width: 36px; min-height: 36px; }
   .growth-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
   .growth-bar { flex: 1; min-width: 80px; height: 8px; border-radius: 4px; background: var(--divider-color); overflow: hidden; }
   .growth-bar i { display: block; height: 100%; background: #3a7d44; }
@@ -1022,6 +1026,10 @@ class HomesteadPanel extends HTMLElement {
     for (const p of this._data.plantings) {
       if (p.row_to && hasPosition(p) && p.status === "active")
         L.polyline([[p.latitude, p.longitude], [p.row_to[1], p.row_to[0]]], { color: "#6a8f2a", weight: 4, interactive: false }).addTo(this._rowLayer);
+      // The plants of a group placed one by one: small dots around the group's marker.
+      if (p.positions?.length && p.status === "active")
+        for (const [lon, lat] of p.positions.slice(1, p.quantity || undefined))
+          L.circleMarker([lat, lon], { radius: 4, color: "#3a7d44", weight: 2, fillColor: "#fff", fillOpacity: 1, interactive: false }).addTo(this._rowLayer);
     }
     for (const p of this._data.plantings) {
       if (!hasPosition(p) || (!this._showGone() && p.status !== "active" && p.id !== this._selected)) continue;
@@ -4615,11 +4623,19 @@ class HomesteadPanel extends HTMLElement {
     const inside = new Set([zoneId, ...this._zoneDescendants(zoneId)]);
     return this._data.plantings
       .filter((p) => p.status === "active" && hasPosition(p) && inside.has(p.zone_id))
-      .map((p) => {
+      .flatMap((p) => {
+        const spacing = this._crop(p.species)?.spacing_cm;
+        const r = spacing ? spacing / 200 : null;
+        // A group placed plant by plant: one dot per plant, still one planting.
+        if (p.kind === "group" && p.positions?.length) {
+          return p.positions.slice(0, p.quantity || p.positions.length).map(([lon, lat], pos) => {
+            const [x, y] = frame.xy(lon, lat);
+            return { p, x, y, end: null, r, pos };
+          });
+        }
         const [x, y] = frame.xy(p.longitude, p.latitude);
         const end = p.row_to ? frame.xy(p.row_to[0], p.row_to[1]) : null;
-        const spacing = this._crop(p.species)?.spacing_cm;
-        return { p, x, y, end, r: spacing ? spacing / 200 : null };
+        return [{ p, x, y, end, r }];
       });
   }
 
@@ -4798,12 +4814,12 @@ class HomesteadPanel extends HTMLElement {
       const faded = plan.highlight && plan.highlight !== key;
       return s(
         "g",
-        { "data-id": it.p.id, class: `plan-plant${selected ? " selected" : ""}${faded ? " faded" : ""}`, transform: `translate(${it.x} ${it.y})` },
+        { "data-id": it.p.id, "data-pos": it.pos ?? null, class: `plan-plant${selected ? " selected" : ""}${faded ? " faded" : ""}`, transform: `translate(${it.x} ${it.y})` },
         it.end ? s("line", { x1: 0, y1: 0, x2: it.end[0] - it.x, y2: it.end[1] - it.y, class: "plan-row", style: `stroke:${groups.get(key)?.color}` }) : null,
         it.r ? s("circle", { r: it.r, class: "plan-reach" }) : null,
         s("circle", { r: unit * 1.6, class: "plan-dot", style: `stroke:${groups.get(key)?.color}` }),
         s("text", { y: unit * 0.8, "font-size": unit * 2.2, "text-anchor": "middle" }, icon),
-        it.p.kind === "group" && it.p.quantity > 1 ? s("text", { x: unit * 2, y: -unit * 1.4, "font-size": unit * 1.8, class: "plan-label" }, `×${it.p.quantity}`) : null,
+        it.p.kind === "group" && it.p.quantity > 1 && it.pos == null ? s("text", { x: unit * 2, y: -unit * 1.4, "font-size": unit * 1.8, class: "plan-label" }, `×${it.p.quantity}`) : null,
       );
     });
     const preview = s("g", { class: "plan-preview" });
@@ -4866,7 +4882,8 @@ class HomesteadPanel extends HTMLElement {
     svg.addEventListener("pointerdown", (ev) => {
       const target = ev.target.closest?.("[data-id]");
       const [x, y] = toLocal(ev);
-      drag = { id: target?.dataset.id || null, el: target, x0: x, y0: y, cx: ev.clientX, cy: ev.clientY, moved: false, view: { ...plan.view } };
+      const pos = target?.dataset.pos;
+      drag = { id: target?.dataset.id || null, pos: pos === undefined || pos === "" ? null : Number(pos), el: target, x0: x, y0: y, cx: ev.clientX, cy: ev.clientY, moved: false, view: { ...plan.view } };
       svg.setPointerCapture(ev.pointerId);
     });
     svg.addEventListener("pointermove", (ev) => {
@@ -4875,7 +4892,7 @@ class HomesteadPanel extends HTMLElement {
       if (!drag.moved) return;
       if (drag.id && !plan.mode) {
         const [x, y] = toLocal(ev);
-        const it = items.find((i) => i.p.id === drag.id);
+        const it = items.find((i) => i.p.id === drag.id && (i.pos ?? null) === drag.pos);
         drag.to = [snap(it.x + x - drag.x0), snap(it.y + y - drag.y0)];
         drag.el.setAttribute("transform", `translate(${drag.to[0]} ${drag.to[1]})`);
         this._planNearest(preview, drag.to, it, items, unit);
@@ -4892,7 +4909,15 @@ class HomesteadPanel extends HTMLElement {
       if (!d) return;
       if (d.moved && d.id && d.to && !plan.mode) {
         const [lon, lat] = frame.lonlat(d.to[0], d.to[1]);
-        const it = items.find((i) => i.p.id === d.id);
+        const it = items.find((i) => i.p.id === d.id && (i.pos ?? null) === d.pos);
+        if (d.pos != null) {
+          // One plant of a group: only its own spot moves; the group's point follows the first plant.
+          const positions = it.p.positions.map((xy) => [...xy]);
+          positions[d.pos] = [lon, lat];
+          plan.selected = d.id;
+          await this._call("update_planting", { id: d.id, positions, longitude: positions[0][0], latitude: positions[0][1] });
+          return;
+        }
         const data = { id: d.id, latitude: lat, longitude: lon };
         if (it.end) {
           const [elon, elat] = frame.lonlat(it.end[0] + d.to[0] - it.x, it.end[1] + d.to[1] - it.y);
@@ -5096,54 +5121,79 @@ class HomesteadPanel extends HTMLElement {
         ? h("span", { className: need && near.d < need ? "sub warn" : "sub" }, this.t(need && near.d < need ? "planTooClose" : "planNearest", { dist: `${Math.round(near.d * 100)} cm`, name: near.o.p.name, need: `${Math.round(need * 100)} cm` }))
         : null,
       mine.length ? h("span", { className: "sub warn" }, `🤝 ${mine.map(({ a, b }) => (a === sel ? b : a).p.name).join(", ")}`) : null,
-      sel.p.kind === "group" && sel.p.quantity > 1 ? this._planSplitRow(sel, frame) : null,
+      sel.p.kind === "group" && sel.p.quantity > 1 ? this._planPlaceRow(sel, frame, items) : null,
+      this._planMergeRow(sel),
       h("div", { className: "row" }, h("button", { type: "button", onclick: () => this._select(sel.p.id) }, this.t("planOpenCard")), h("button", { type: "button", onclick: () => ((this._plan.selected = null), this._render()) }, "✕")),
     );
   }
 
-  /** "✂️ Take out [n] plants": single plants next to the group (along its row, if it has one). */
-  _planSplitRow(sel, frame) {
-    const q = sel.p.quantity;
-    const input = h("input", { type: "number", min: 1, max: q, step: 1, value: q, inputMode: "numeric", style: "width: 5em" });
+  /** A group stays one planting (one harvest, one treatment for all), but its plants can each get a spot. */
+  _planPlaceRow(sel, frame, items) {
+    const p = sel.p;
+    const placed = p.positions?.length || 0;
+    const missing = Math.max(0, p.quantity - placed);
+    const buttons = [];
+    if (!placed) buttons.push(h("button", { type: "button", onclick: () => this._planPlace(sel, frame, items) }, `✂️ ${this.t("planPlaceEach")}`));
+    if (placed && missing) buttons.push(h("button", { type: "button", onclick: () => this._planPlace(sel, frame, items) }, `＋ ${this.t("planPlaceMissing", { count: missing })}`));
+    if (placed)
+      buttons.push(
+        h(
+          "button",
+          { type: "button", onclick: async () => (await this._call("update_planting", { id: p.id, positions: [] })) && this._showMessage(`✓ ${this.t("planPlaceCleared", { name: p.name })}`) },
+          `⤺ ${this.t("planPlaceClear")}`,
+        ),
+      );
+    return h("div", { className: "row plan-split" }, h("span", { className: "sub" }, placed ? this.t("planPlaced", { placed, count: p.quantity }) : this.t("planGroupOne", { count: p.quantity })), ...buttons);
+  }
+
+  /** Spots for the plants of a group: along its row, else in a line from its point (spacing or 30 cm). */
+  async _planPlace(sel, frame, items) {
+    const p = sel.p;
+    const q = p.quantity;
+    const gap = sel.r ? sel.r * 2 : 0.3;
+    const current = (p.positions || []).map((xy) => [...xy]);
+    let spots;
+    if (!current.length) {
+      const slot = (k) => (sel.end ? [sel.x + ((sel.end[0] - sel.x) * k) / (q - 1), sel.y + ((sel.end[1] - sel.y) * k) / (q - 1)] : [sel.x + gap * k, sel.y]);
+      spots = Array.from({ length: q }, (_, k) => frame.lonlat(...slot(k)));
+    } else {
+      const mine = items.filter((i) => i.p.id === p.id);
+      const last = mine[mine.length - 1] || sel;
+      spots = [...current, ...Array.from({ length: q - current.length }, (_, k) => frame.lonlat(last.x + gap * (k + 1), last.y))];
+    }
+    const data = { id: p.id, positions: spots, longitude: spots[0][0], latitude: spots[0][1] };
+    if (!current.length) data.row_to = null;
+    this._plan.selected = p.id;
+    if (await this._call("update_planting", data)) this._showMessage(`✓ ${this.t("planPlaceDone", { count: q, name: p.name })}`);
+  }
+
+  /** Plants of one group split by mistake (same crop, variety and date in this zone): one tap merges them back. */
+  _planMergeRow(sel) {
+    const key = this._plantGroupKey(sel.p);
+    const top = this._topZone(sel.p.zone_id);
+    const same = this._data.plantings.filter((o) => o.status === "active" && this._plantGroupKey(o) === key && this._topZone(o.zone_id) === top);
+    if (same.length < 2) return null;
+    const plain = (o) => !/\s\d+$/.test(o.name);
+    const byName = [...same].sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }));
+    const target = byName.find((o) => o.kind === "group" && plain(o)) || byName.find(plain) || byName.find((o) => o.kind === "group") || byName[0];
+    const others = same.filter((o) => o.id !== target.id).map((o) => o.id);
+    const total = same.reduce((n, o) => n + (o.kind === "group" ? o.quantity || 1 : 1), 0);
     return h(
       "div",
       { className: "row plan-split" },
-      h("span", {}, `✂️ ${this.t("planSplit")}`),
-      input,
-      h("span", { className: "sub" }, this.t("planSplitOf", { count: q })),
-      h("button", { type: "button", onclick: () => this._planSplit(sel, frame, Math.min(Math.max(Math.round(Number(input.value)) || 0, 1), q)) }, this.t("planSplitDo")),
+      h("span", { className: "sub" }, this.t("planMergeHint", { count: same.length, name: target.name })),
+      h(
+        "button",
+        {
+          type: "button",
+          onclick: async () => {
+            this._plan.selected = target.id;
+            if (await this._call("merge_plantings", { id: target.id, ids: others })) this._showMessage(`✓ ${this.t("planMergeDone", { name: target.name, count: total })}`);
+          },
+        },
+        `🔗 ${this.t("planMerge")}`,
+      ),
     );
-  }
-
-  async _planSplit(sel, frame, n) {
-    const p = sel.p;
-    const q = p.quantity;
-    const all = n >= q;
-    // Slots of the group: along its row, else a line to the right of it (its spacing or 30 cm).
-    const gap = sel.r ? sel.r * 2 : 0.3;
-    const slot = (k) =>
-      sel.end ? [sel.x + ((sel.end[0] - sel.x) * k) / (q - 1), sel.y + ((sel.end[1] - sel.y) * k) / (q - 1)] : [sel.x + gap * k, sel.y];
-    const left = q - n; // plants staying in the group (0 when all are taken out)
-    const firstNew = all ? 1 : left;
-    const copy = Object.fromEntries(
-      ["species", "taxon_id", "variety", "plant_type", "origin", "sown_on", "planted_on", "birth_year", "zone_id", "supplier", "seed_lot_id", "watering", "rootstock", "initial_form"]
-        .filter((key) => p[key] !== null && p[key] !== undefined && p[key] !== "")
-        .map((key) => [key, p[key]]),
-    );
-    const update = { id: p.id, kind: all || left === 1 ? "single" : "group", quantity: all ? 1 : left };
-    if (sel.end) {
-      const keep = all ? 0 : left - 1;
-      update.row_to = keep > 0 ? frame.lonlat(...slot(keep)) : null;
-    }
-    if (!(await this._call("update_planting", update))) return;
-    let made = 0;
-    for (let k = firstNew; k < q; k++) {
-      const [lon, lat] = frame.lonlat(...slot(sel.end ? k : k - firstNew + 1));
-      const number = k - firstNew + 2;
-      if (await this._call("add_planting", { ...copy, name: `${p.name} ${number}`, kind: "single", quantity: 1, latitude: lat, longitude: lon })) made++;
-    }
-    this._plan.selected = null;
-    this._showMessage(`✓ ${this.t("planSplitDone", { count: made, name: p.name })}`);
   }
 
   /** A bed of any shape: tap its corners on the plan (snapped to the grid and to existing corners). */
@@ -6137,7 +6187,63 @@ class HomesteadPanel extends HTMLElement {
   }
 
   _listItems(task) {
+    if (task.kind === "photo") return this._photoSorted([...(task.zone_ids || []), ...(task.planting_ids || [])]);
     return [...(task.zone_ids || []), ...(task.planting_ids || []), ...(task.seed_ids || [])];
+  }
+
+  /** The photo round in the order chosen: by hand (the plan's order) or zone by zone, plants after their zone. */
+  _photoSorted(ids) {
+    const plan = this._photoPlan();
+    if (!plan) return ids;
+    if (plan.sort === "zone") {
+      const key = (id) => {
+        const zone = this._zone(id);
+        if (zone) return `${this._zonePath(id)}\u0000`;
+        const p = this._planting(id);
+        return `${p?.zone_id ? this._zonePath(p.zone_id) : "\uffff"}\u0001${p?.name || id}`;
+      };
+      return [...ids].sort((a, b) => key(a).localeCompare(key(b), undefined, { numeric: true }));
+    }
+    const at = new Map((plan.order || []).map((id, i) => [id, i]));
+    return ids.map((id, i) => [id, at.has(id) ? at.get(id) : 1e6 + i]).sort((a, b) => a[1] - b[1]).map(([id]) => id);
+  }
+
+  /** Order bar of a photo list: zone by zone, or by hand with ↑ ↓ on each line. */
+  _photoOrderBar(t) {
+    const plan = this._photoPlan();
+    if (!plan) return null;
+    const editing = this._photoReorder === t.id;
+    const set = async (data) => this._call("set_photo_order", data);
+    return h(
+      "div",
+      { className: "row photo-order" },
+      h("span", { className: "sub" }, this.t("photoOrder")),
+      h("button", { type: "button", className: plan.sort === "zone" ? "on" : "", onclick: () => set({ sort: "zone" }) }, `🗺️ ${this.t("photoOrderZone")}`),
+      h(
+        "button",
+        {
+          type: "button",
+          className: plan.sort !== "zone" ? "on" : "",
+          onclick: () => {
+            this._photoReorder = editing ? null : t.id;
+            if (plan.sort === "zone") set({ sort: "manual", order: this._listItems(t) });
+            else this._render();
+          },
+        },
+        `✋ ${this.t(editing ? "photoOrderDone" : "photoOrderHand")}`,
+      ),
+    );
+  }
+
+  _photoMove(t, id, step) {
+    const items = this._listItems(t);
+    const plan = this._photoPlan();
+    const rest = (plan?.order || []).filter((x) => !items.includes(x));
+    const i = items.indexOf(id);
+    const j = i + step;
+    if (i < 0 || j < 0 || j >= items.length) return;
+    [items[i], items[j]] = [items[j], items[i]];
+    this._call("set_photo_order", { sort: "manual", order: [...items, ...rest] });
   }
 
   _itemName(id) {
@@ -6187,6 +6293,7 @@ class HomesteadPanel extends HTMLElement {
         h("span", { className: "list-count" }, this.t("listProgress", { done: count, total: items.length })),
       ),
       h("div", { className: "list-bar" }, h("i", { style: `width:${items.length ? (count / items.length) * 100 : 0}%` })),
+      photo ? this._photoOrderBar(t) : null,
       items.map((id) =>
         photo ? this._shotRow(t, id, done.has(id)) : h(
           "label",
@@ -6219,17 +6326,31 @@ class HomesteadPanel extends HTMLElement {
     const thumb = h("span", { className: "shot-thumb" }, last ? null : "📸");
     if (last) this._photoUrl(last.id, true).then((url) => thumb.replaceChildren(h("img", { src: url, alt: "" })));
     const event = done ? this._data.events.find((e) => e.kind === "photo" && (e.zone_id === id || e.planting_id === id) && e.done_on >= t.due_on) : null;
+    // A photo event whose file never arrived (network, format): say so and offer to take it again.
+    const lost = event && !this._data.photos.some((ph) => ph.event_id === event.id);
+    const editing = this._photoReorder === t.id;
     return h(
       "div",
-      { className: `list-item${done ? " done" : ""}` },
-      thumb,
+      { className: `list-item${done && !lost ? " done" : ""}` },
+      editing
+        ? h(
+            "span",
+            { className: "order-buttons" },
+            h("button", { type: "button", "aria-label": "↑", onclick: () => this._photoMove(t, id, -1) }, "↑"),
+            h("button", { type: "button", "aria-label": "↓", onclick: () => this._photoMove(t, id, 1) }, "↓"),
+          )
+        : thumb,
       h(
         "span",
         { style: "display:grid;flex:1" },
         h("span", {}, this._itemName(id)),
-        h("span", { className: "sub" }, done ? (event ? `✓ ${this._date(event.done_on)}` : this.t("shotSkipped")) : last ? this.t("shotLast", { date: this._date(last.taken_on) }) : this.t("shotFirst")),
+        h(
+          "span",
+          { className: lost ? "sub warn" : "sub" },
+          lost ? `⚠️ ${this.t("shotLost", { date: this._date(event.done_on) })}` : done ? (event ? `✓ ${this._date(event.done_on)}` : this.t("shotSkipped")) : last ? this.t("shotLast", { date: this._date(last.taken_on) }) : this.t("shotFirst"),
+        ),
       ),
-      done ? null : h("button", { type: "button", className: "primary", onclick: () => this._openShot(t, id) }, `📸 ${this.t("shotTake")}`),
+      editing ? null : done && !lost ? null : h("button", { type: "button", className: "primary", onclick: () => this._openShot(t, id, lost ? event.id : null) }, `📸 ${this.t(lost ? "shotRetry" : "shotTake")}`),
     );
   }
 
@@ -9086,10 +9207,10 @@ class HomesteadPanel extends HTMLElement {
 
   // ----- the shot: live camera with the last photo over it -----
 
-  _openShot(task, item) {
+  _openShot(task, item, emptyEvent = null) {
     this._clearSelection();
     this._showMessage("");
-    this._shot = { task_id: task.id, item };
+    this._shot = { task_id: task.id, item, emptyEvent };
     this._render();
   }
 
@@ -9171,6 +9292,10 @@ class HomesteadPanel extends HTMLElement {
         canvas.getContext("2d").drawImage(video, 0, 0);
         blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
       }
+      if (!blob?.size) {
+        this._showMessage(`⚠️ ${this.t("shotEmpty")}`, true);
+        return;
+      }
       this._savePlanPhoto(blob, `${today()}.jpg`);
     };
     const skip = async () => {
@@ -9204,9 +9329,15 @@ class HomesteadPanel extends HTMLElement {
     const shot = this._shot;
     const task = this._data.tasks.find((t) => t.id === shot?.task_id);
     if (!shot) return;
+    // HEIC/HEIF (some phones' "high efficiency" setting) cannot be shown in a browser: refuse it before anything.
+    if (/hei[cf]/i.test(blob.type || "") || /\.hei[cf]$/i.test(name || "")) {
+      this._showMessage(`⚠️ ${this.t("shotHeic")}`, true);
+      return;
+    }
     this._showMessage(this.t("uploading"));
     const target = this._zone(shot.item) ? { zone_id: shot.item } : { planting_id: shot.item };
-    const result = await this._call("add_event", { kind: "photo", done_on: today(), ...target, ...(task && !task.done_on ? { task_id: task.id } : {}) });
+    // The event first, without ticking the list: the zone is ticked only once the file is safe on the server.
+    const result = await this._call("add_event", { kind: "photo", done_on: today(), ...target });
     if (!result) return;
     try {
       const form = new FormData();
@@ -9215,11 +9346,15 @@ class HomesteadPanel extends HTMLElement {
       const thumb = await thumbnail(blob, THUMB_PX).catch(() => null);
       if (thumb) form.append("thumb", thumb, "thumb.jpg");
       const response = await this._hass.fetchWithAuth("/api/homestead/photo/upload", { method: "POST", body: form });
-      if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+      if (!response.ok) throw new Error(response.status === 413 ? this.t("shotTooBig") : `${response.status} ${await response.text()}`);
     } catch (err) {
-      this._showMessage(err.message || String(err), true);
+      // No file, no entry: the event goes and the zone stays to do.
+      await this._call("delete_event", { id: result.id });
+      this._showMessage(`⚠️ ${this.t("shotFailed", { error: err.message || String(err) })}`, true);
       return;
     }
+    if (shot.emptyEvent) await this._call("delete_event", { id: shot.emptyEvent });
+    if (task && !task.done_on && !(task.done_ids || []).includes(shot.item)) await this._call("complete_task", { id: task.id, items: [shot.item] });
     this._showMessage(`✓ ${this.t("shotSaved", { name: this._itemName(shot.item) })}`);
     this._nextShot(task, shot.item);
   }

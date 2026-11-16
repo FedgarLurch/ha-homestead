@@ -87,6 +87,9 @@
     },
     "sources_unavailable": {
       "message": "GBIF et Wikidata ne répondent pas : réessayez plus tard."
+    },
+    "no_photo_plan": {
+      "message": "Il n'y a pas encore de plan photo."
     }
   },
   "selector": {
@@ -364,7 +367,7 @@
         },
         "watering": {
           "name": "Comment c'est arrosé",
-          "description": "Pluie seule, arrosoir, tuyau, goutte-à-goutte, par aspersion ou vanne automatique ; vide = comme la zone au-dessus."
+          "description": "Pluie seule, arrosoir, tuyau, goutte-à-goutte ou par aspersion ; vide = comme la zone au-dessus. La vanne qui ouvre l'eau est un réglage à part."
         },
         "valve_entity": {
           "name": "Vanne",
@@ -430,7 +433,7 @@
         },
         "watering": {
           "name": "Comment c'est arrosé",
-          "description": "Pluie seule, arrosoir, tuyau, goutte-à-goutte, par aspersion ou vanne automatique ; vide = comme la zone au-dessus."
+          "description": "Pluie seule, arrosoir, tuyau, goutte-à-goutte ou par aspersion ; vide = comme la zone au-dessus. La vanne qui ouvre l'eau est un réglage à part."
         },
         "valve_entity": {
           "name": "Vanne",
@@ -580,9 +583,13 @@
           "name": "Fin du rang",
           "description": "Un rang de plantes : l'autre extrémité en [longitude, latitude] ; la position est le début du rang."
         },
+        "positions": {
+          "name": "Plantes du groupe",
+          "description": "Un groupe placé plante par plante : un [longitude, latitude] par plante. Le groupe reste une seule plantation pour le journal."
+        },
         "watering": {
           "name": "Comment c'est arrosé",
-          "description": "Pluie seule, arrosoir, tuyau, goutte-à-goutte, par aspersion ou vanne automatique ; vide = comme la zone au-dessus."
+          "description": "Pluie seule, arrosoir, tuyau, goutte-à-goutte ou par aspersion ; vide = comme la zone au-dessus. La vanne se règle sur la zone."
         },
         "growth_start": {
           "name": "Stade de croissance initial",
@@ -722,9 +729,13 @@
           "name": "Fin du rang",
           "description": "Un rang de plantes : l'autre extrémité en [longitude, latitude] ; la position est le début du rang."
         },
+        "positions": {
+          "name": "Plantes du groupe",
+          "description": "Un groupe placé plante par plante : un [longitude, latitude] par plante. Le groupe reste une seule plantation pour le journal."
+        },
         "watering": {
           "name": "Comment c'est arrosé",
-          "description": "Pluie seule, arrosoir, tuyau, goutte-à-goutte, par aspersion ou vanne automatique ; vide = comme la zone au-dessus."
+          "description": "Pluie seule, arrosoir, tuyau, goutte-à-goutte ou par aspersion ; vide = comme la zone au-dessus. La vanne se règle sur la zone."
         },
         "growth_start": {
           "name": "Stade de croissance initial",
@@ -1581,6 +1592,34 @@
         "stage": {
           "name": "Stade",
           "description": "Stade de croissance, de 1 à 10 (10 = taille adulte)."
+        }
+      }
+    },
+    "merge_plantings": {
+      "name": "Regrouper des plantations",
+      "description": "Des plantes d'une même culture séparées par erreur redeviennent un seul groupe : les quantités s'additionnent, chaque plante garde sa place, et leur journal, leurs photos et dépenses passent au groupe.",
+      "fields": {
+        "id": {
+          "name": "ID",
+          "description": "La plantation qui reste (le groupe)."
+        },
+        "ids": {
+          "name": "Autres",
+          "description": "Les plantations regroupées dedans."
+        }
+      }
+    },
+    "set_photo_order": {
+      "name": "Ordre de la tournée photo",
+      "description": "Comment se suivent les zones et plantes de la tournée photo : à la main ou zone par zone.",
+      "fields": {
+        "order": {
+          "name": "Ordre",
+          "description": "ID des zones et plantes dans l'ordre voulu."
+        },
+        "sort": {
+          "name": "Tri",
+          "description": "manual = l'ordre ci-dessus, zone = chaque zone suivie de ses plantes."
         }
       }
     }
