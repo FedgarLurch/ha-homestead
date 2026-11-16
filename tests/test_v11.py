@@ -11,7 +11,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.homestead.const import CONF_NOTIFY, CONF_NOTIFY_TIME, DOMAIN
-from custom_components.homestead.crops import full_table, load_cropgraph, load_defaults, plant_type
+from custom_components.homestead.crops import full_table, load_crops, plant_type
 from custom_components.homestead.forecast import Outlook
 
 
@@ -103,7 +103,7 @@ def test_plant_type_from_species() -> None:
     assert plant_type("Ocimum basilicum", "herb") == "herb"
     assert plant_type("Helianthus annuus", "flower") == "flower"
     assert plant_type("Unknownia rara", "fruit") is None
-    table = full_table(load_defaults(), load_cropgraph(), None)
+    table = full_table(load_crops(), None)
     assert table["malus domestica"]["plant_type"] == "fruit_tree"
     assert table["solanum lycopersicum"]["plant_type"] == "vegetable"
     assert table["rosa"]["plant_type"] == "shrub"

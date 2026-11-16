@@ -6,7 +6,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.homestead.backup import read_backup
 from custom_components.homestead.const import DOMAIN
-from custom_components.homestead.crops import load_defaults, lookup, normalize
+from custom_components.homestead.crops import load_crops, lookup, normalize
 
 
 async def _setup(hass: HomeAssistant) -> MockConfigEntry:
@@ -103,16 +103,15 @@ async def test_seed_lots(hass: HomeAssistant) -> None:
 
 
 def test_crop_defaults_lookup() -> None:
-    table = load_defaults()
+    table = load_crops()
     assert normalize("Citrus x limon") == normalize("Citrus × limon") == "citrus limon"
     tomato = lookup("Solanum lycopersicum var. cerasiforme", table)
-    assert tomato["species"] == "Solanum lycopersicum" and 5 in tomato["plant_out"]
-    assert lookup("Rosa canina", table)["species"] == "Rosa"
+    assert tomato["species"] == "Solanum lycopersicum" and tomato["name"] == "Tomato"
+    assert lookup("Rosa ignota", table)["species"] == "Rosa"
     assert lookup("Unknown plant", table) is None
-    months = ("sow_indoor", "sow_outdoor", "plant_out", "flowering", "harvest")
     for crop in table.values():
-        assert set(crop["exposure"]) <= {"sun", "partial", "shade"}
-        assert all(1 <= m <= 12 for key in months for m in crop.get(key, []))
+        assert set(crop.get("exposure", [])) <= {"sun", "partial", "shade"}
+        assert not any(key in crop for key in ("sow_indoor", "plant_out", "harvest"))  # needs, not months
 
 
 async def test_crop_profiles(hass: HomeAssistant, hass_ws_client) -> None:
